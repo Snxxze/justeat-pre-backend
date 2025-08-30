@@ -6,6 +6,8 @@ import (
 
 type RiderStatus struct {
 	gorm.Model
-	StatusName string 
-	Riders     []Rider
+	StatusName string `gorm:"size:100;uniqueIndex;not null" json:"statusName"`
+
+	// ไม่จำเป็นต้อง preload riders ทุกครั้ง
+	Riders []Rider `json:"-"`
 }

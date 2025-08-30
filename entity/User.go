@@ -6,18 +6,19 @@ import (
 
 type User struct {
 	gorm.Model
-	Email	string
-	Password	string
-	FirstName	string
-	LastName	string
-	PhoneNumber	string
-	Role	string	`gorm:"not null;default:customer"`
+	Email       string `gorm:"uniqueIndex;not null" json:"email"`
+	Password    string `json:"-"` // ปลอดภัย
+	FirstName   string `json:"firstName"`
+	LastName    string `json:"lastName"`
+	PhoneNumber string `json:"phoneNumber"`
+	Role        string `gorm:"not null;default:customer" json:"role"`
 
-	RestaurantsOwned []Restaurant `gorm:"foreignKey:UserID"` // owner
-	Orders           []Order
-	Reviews          []Review
-	MessagesSent     []Message `gorm:"foreignKey:UserSenderID"`
-	UserPromotions   []UserPromotion
-	RiderProfile     *Rider `gorm:"foreignKey:UserID"`
-	Reports          []Report
+	// Relations — preload เฉพาะตอนจำเป็น
+	RestaurantsOwned []Restaurant   `gorm:"foreignKey:UserID" json:"-"`
+	Orders           []Order        `json:"-"`
+	Reviews          []Review       `json:"-"`
+	MessagesSent     []Message      `gorm:"foreignKey:UserSenderID" json:"-"`
+	UserPromotions   []UserPromotion `json:"-"`
+	RiderProfile     *Rider         `gorm:"foreignKey:UserID" json:"-"`
+	Reports          []Report       `json:"-"`
 }

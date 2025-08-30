@@ -7,17 +7,19 @@ import (
 
 type Report struct {
 	gorm.Model
-	Name        string 
-	Email       string 
-	PhoneNumber string 
-	Description string
-	DateAt      *time.Time
-	Picture     string 
+	Name        string     `json:"name"`
+	Email       string     `json:"email"`
+	PhoneNumber string     `json:"phoneNumber"`
+	Description string     `json:"description"`
+	DateAt      *time.Time `json:"dateAt,omitempty"`
+	Picture     string     `json:"picture"`
 
-	IssueTypeID uint
-	IssueType   IssueType 
-	UserID      uint
-	User        User 
-	AdminID     uint
-	Admin       Admin 
+	IssueTypeID uint      `json:"issueTypeId"`
+	IssueType   IssueType `json:"-"` // preload เฉพาะตอน detail
+
+	UserID uint `json:"userId"`
+	User   User `json:"-"` // preload เฉพาะตอนต้องการข้อมูล user
+
+	AdminID uint  `json:"adminId"`
+	Admin   Admin `json:"-"` // preload เฉพาะตอนต้องการข้อมูล admin
 }

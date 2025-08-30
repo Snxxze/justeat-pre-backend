@@ -6,6 +6,8 @@ import (
 
 type OrderStatus struct {
 	gorm.Model
-	StatusName string 
-	Orders     []Order
+	StatusName string `json:"statusName"`
+
+	// ไม่จำเป็นต้องส่ง relation ทุกครั้ง
+	Orders []Order `json:"-"`
 }

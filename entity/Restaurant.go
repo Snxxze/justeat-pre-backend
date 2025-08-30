@@ -6,23 +6,25 @@ import (
 
 type Restaurant struct {
 	gorm.Model
-	Name        string 
-	Address     string 
-	Description string 
-	Picture     string 
+	Name        string `json:"name"`
+	Address     string `json:"address"`
+	Description string `json:"description"`
+	Picture     string `json:"picture"`
 
-	RestaurantCategoryID uint
-	RestaurantCategory   RestaurantCategory 
-	RestaurantStatusID   uint
-	RestaurantStatus     RestaurantStatus 
+	RestaurantCategoryID uint               `json:"restaurantCategoryId"`
+	RestaurantCategory   RestaurantCategory `json:"-"` // preload เฉพาะตอนต้องการ
 
-	UserID uint // owner (users.id)
-	User   User
+	RestaurantStatusID uint             `json:"restaurantStatusId"`
+	RestaurantStatus   RestaurantStatus `json:"-"` // preload เฉพาะตอน detail
 
-	AdminID *uint
-	Admin   *Admin 
+	UserID uint `json:"userId"` // owner
+	User   User `json:"-"` // preload เฉพาะตอนต้องการข้อมูลเจ้าของร้าน
 
-	Menus   []Menu
-	Orders  []Order
-	Reviews []Review
+	AdminID *uint  `json:"adminId,omitempty"`
+	Admin   *Admin `json:"-"` // preload เฉพาะตอนที่ admin ต้องการจัดการ
+
+	Menus   []Menu   `json:"-"` // preload แค่ endpoint /restaurants/:id/menus
+	Orders  []Order  `json:"-"` // preload แค่ endpoint /restaurants/:id/orders
+	Reviews []Review `json:"-"` // preload แค่ endpoint /restaurants/:id/reviews
 }
+

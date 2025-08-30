@@ -6,18 +6,20 @@ import (
 
 type Menu struct {
 	gorm.Model
-	MenuName     string 
-	Detail       string 
-	Price        int64  
-	Picture      string 
+	MenuName string `json:"menuName"`
+	Detail   string `json:"detail"`
+	Price    int64  `json:"price"`
+	Picture  string `json:"picture"`
 
-	MenuTypeID   uint
-	MenuType     MenuType 
-	RestaurantID uint
-	Restaurant   Restaurant 
-	MenuStatusID uint
-	MenuStatus   MenuStatus 
+	MenuTypeID   uint     `json:"menuTypeId"`
+	MenuType     MenuType `json:"-"` // preload เฉพาะตอน detail
 
-	Options []Option `gorm:"many2many:menu_options;"`
-	OrderItems []OrderItem
+	RestaurantID uint `json:"restaurantId"`
+	Restaurant   Restaurant `json:"-"` // preload เมื่อจำเป็น
+
+	MenuStatusID uint       `json:"menuStatusId"`
+	MenuStatus   MenuStatus `json:"-"` // preload เฉพาะ endpoint จัดการเมนู
+
+	Options    []Option    `gorm:"many2many:menu_options;" json:"-"`
+	OrderItems []OrderItem `json:"-"`
 }

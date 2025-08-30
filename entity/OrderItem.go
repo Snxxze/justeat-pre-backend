@@ -6,14 +6,16 @@ import (
 
 type OrderItem struct {
 	gorm.Model
-	Qty       int   
-	UnitPrice int64 
-	Total     int64 
+	Qty       int   `json:"qty"`
+	UnitPrice int64 `json:"unitPrice"`
+	Total     int64 `json:"total"`
 
-	OrderID uint
-	Order   Order 
-	MenuID  uint
-	Menu    Menu 
+	OrderID uint  `json:"orderId"`
+	Order   Order `json:"-"` // preload แค่ตอนต้องการ order detail
 
-	Selections []OrderItemSelection `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	MenuID uint `json:"menuId"`
+	Menu   Menu `json:"-"` // preload เฉพาะตอนต้องการชื่อเมนู
+
+	Selections []OrderItemSelection `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"selections"`
 }
+

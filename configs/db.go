@@ -1,6 +1,8 @@
 package configs
 
 import (
+	"log"
+
 	"backend/entity"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -8,22 +10,32 @@ import (
 
 var db *gorm.DB
 
-func DB() *gorm.DB {
-	return db
-}
+func DB() *gorm.DB { return db }
 
 func ConnectionDB() {
-	database, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{})
+	cfg := LoadConfig()
+
+	var (
+		database *gorm.DB
+		err      error
+	)
+
+	switch cfg.DBDriver {
+	case "sqlite":
+		database, err = gorm.Open(sqlite.Open(cfg.DBSource), &gorm.Config{})
+	default:
+		log.Fatalf("unsupported DB driver: %s", cfg.DBDriver)
+	}
+
 	if err != nil {
-		panic("failed to connect database")
+		log.Fatalf("failed to connect database: %v", err)
 	}
 	db = database
 }
 
 func SetupDatabase() {
-
-	// Migrate the schema
-	db.AutoMigrate(
+	// AutoMigrate ทั้งหมดของคุณ (มี entity อยู่แล้ว)
+	if err := db.AutoMigrate(
 		&entity.User{}, &entity.Admin{},
 		&entity.RestaurantCategory{}, &entity.RestaurantStatus{}, &entity.Restaurant{},
 		&entity.MenuType{}, &entity.MenuStatus{}, &entity.Menu{}, &entity.MenuOption{},
@@ -35,5 +47,8 @@ func SetupDatabase() {
 		&entity.PromoType{}, &entity.Promotion{}, &entity.UserPromotion{},
 		&entity.Review{},
 		&entity.IssueType{}, &entity.Report{},
-	)
+		&entity.RestaurantApplication{},
+	); err != nil {
+		log.Fatalf("auto-migrate failed: %v", err)
+	}
 }

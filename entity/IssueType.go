@@ -6,6 +6,8 @@ import (
 
 type IssueType struct {
 	gorm.Model
-	TypeName string  
-	Reports  []Report
+	TypeName string `json:"typeName"`
+
+	// ไม่ preload reports เสมอ เพราะจะ response หนัก
+	Reports []Report `json:"-"`
 }

@@ -6,17 +6,19 @@ import (
 
 type Rider struct {
 	gorm.Model
-	VehiclePlate string
-	License      string 
-	DriveCar     bool   
+	VehiclePlate string `json:"vehiclePlate"`
+	License      string `json:"license"`
+	DriveCar     bool   `json:"driveCar"`
 
-	RiderStatusID uint
-	RiderStatus   RiderStatus 
+	RiderStatusID uint        `json:"riderStatusId"`
+	RiderStatus   RiderStatus `json:"-"` // preload เฉพาะตอน detail
 
-	AdminID *uint
-	Admin   *Admin 
-	UserID  uint
-	User    User 
+	AdminID *uint  `json:"adminId,omitempty"`
+	Admin   *Admin `json:"-"` // preload เฉพาะตอนที่ admin ต้องการจัดการ
 
-	Works []RiderWork
+	UserID uint `json:"userId"`
+	User   User `json:"-"` // preload เฉพาะเวลาต้องการชื่อ/ข้อมูล user
+
+	Works []RiderWork `json:"-"` // preload เฉพาะ endpoint ประวัติการทำงาน
 }
+

@@ -1,25 +1,44 @@
-// main.go
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"backend/configs"
 	"backend/entity"
+	"backend/routes"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// 1) เปิด/เชื่อมต่อ DB (สร้างไฟล์ test.db อัตโนมัติถ้ายังไม่มี)
+	// DB
 	configs.ConnectionDB()
 	db := configs.DB()
 
-	// 2) ตั้งค่า join table สำหรับ many2many Menu<->Option (มี field เพิ่ม เช่น sort_order)
+	// join table (many2many Menu<->Option)
 	if err := db.SetupJoinTable(&entity.Menu{}, "Options", &entity.MenuOption{}); err != nil {
 		log.Fatalf("setup join table failed: %v", err)
 	}
 
-	// 3) AutoMigrate ตามที่เขียนไว้ใน configs.SetupDatabase()
+	// migrate
 	configs.SetupDatabase()
 
-	log.Println("SQLite initialized & migrated: test.db ✅")
+	if err := configs.SeedAdmin(); err != nil {
+		log.Fatalf("seed admin failed: %v", err)
+	}
+	if err := configs.SeedLookups(); err != nil {
+		log.Fatalf("seed lookups failed: %v", err)
+	}
+
+	// HTTP
+	r := gin.Default()
+	routes.RegisterRoutes(r)
+
+	port := configs.LoadConfig().Port
+	addr := fmt.Sprintf(":%s", port)
+	log.Println("🚀 Server running at", addr)
+	if err := r.Run(addr); err != nil {
+		log.Fatal(err)
+	}
 }

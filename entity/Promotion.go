@@ -7,18 +7,19 @@ import (
 
 type Promotion struct {
 	gorm.Model
-	PromoCode   string     
-	PromoDetail string     
-	IsValues    bool       
-	MinOrder    int64      
-	StartAt     *time.Time
-	EndAt       *time.Time
+	PromoCode   string     `gorm:"size:50;uniqueIndex;not null" json:"promoCode"`
+	PromoDetail string     `json:"promoDetail"`
+	IsValues    bool       `json:"isValues"`
+	MinOrder    int64      `json:"minOrder"`
+	StartAt     *time.Time `json:"startAt,omitempty"`
+	EndAt       *time.Time `json:"endAt,omitempty"`
 
-	PromoTypeID uint
-	PromoType   PromoType 
+	PromoTypeID uint      `json:"promoTypeId"`
+	PromoType   PromoType `json:"-"` // preload เฉพาะตอน detail
 
-	AdminID uint
-	Admin   Admin 
+	AdminID uint  `json:"adminId"`
+	Admin   Admin `json:"-"` // preload เฉพาะ endpoint ที่ต้องแสดง admin
 
-	UserPromotions []UserPromotion
+	UserPromotions []UserPromotion `json:"-"` // preload เฉพาะตอนต้องการดูว่า user ใช้โปรหรือยัง
 }
+
