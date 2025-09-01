@@ -11,6 +11,7 @@ type User struct {
 	FirstName   string `json:"firstName"`
 	LastName    string `json:"lastName"`
 	PhoneNumber string `json:"phoneNumber"`
+	Address			string `json:"address"`
 	Role        string `gorm:"not null;default:customer" json:"role"`
 
 	// Relations — preload เฉพาะตอนจำเป็น

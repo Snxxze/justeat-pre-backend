@@ -78,8 +78,8 @@ func SeedLookups() error {
 
 	// Promotion
 	db.FirstOrCreate(&entity.PromoType{}, entity.PromoType{NameType: "Discount"})
-	db.FirstOrCreate(&entity.PromoType{}, entity.PromoType{NameType: "Free Delivery"})
 	db.FirstOrCreate(&entity.PromoType{}, entity.PromoType{NameType: "Percent"})
+	// db.FirstOrCreate(&entity.PromoType{}, entity.PromoType{NameType: "Free Delivery"})
 
 	// Issue / Report
 	db.FirstOrCreate(&entity.IssueType{}, entity.IssueType{TypeName: "Delivery Late"})
