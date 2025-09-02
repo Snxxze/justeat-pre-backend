@@ -1,6 +1,11 @@
 package controllers
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"net/http"
+
 	"errors"
 	"strconv"
 	"time"
@@ -13,8 +18,13 @@ import (
 	"gorm.io/gorm"
 )
 
-type RestaurantController struct{ DB *gorm.DB }
-func NewRestaurantController(db *gorm.DB) *RestaurantController { return &RestaurantController{DB: db} }
+type RestaurantController struct{ 
+	DB *gorm.DB 
+}
+
+func NewRestaurantController(db *gorm.DB) *RestaurantController { 
+	return &RestaurantController{DB: db} 
+}
 
 // ===== User side =====
 
@@ -249,4 +259,97 @@ func (rc *RestaurantController) Dashboard(c *gin.Context) {
 		Scan(&revenue)
 
 	resp.OK(c, gin.H{"ordersToday": ordersToday, "revenue": revenue})
+}
+
+// POST /partner/restaurant/menu/:id/image?restaurantId=xxx
+// form-data: image=<file>
+func (rc *RestaurantController) UploadMenuImage(c *gin.Context) {
+	menuID64, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	if menuID64 == 0 { resp.BadRequest(c, "invalid menu id"); return }
+
+	// โหลดเมนูเพื่อรู้ว่าอยู่ร้านไหน
+	var m entity.Menu
+	if err := rc.DB.Select("id, restaurant_id").First(&m, uint(menuID64)).Error; err != nil {
+		resp.BadRequest(c, "menu not found"); return
+	}
+	// ตรวจสิทธิ์: ต้องเป็น owner ของร้านนี้หรือ admin
+	if _, ok := rc.ensureOwnerOrAdmin(c, m.RestaurantID); !ok { return }
+
+	// รับไฟล์
+	fh, err := c.FormFile("image")
+	if err != nil { resp.BadRequest(c, "image is required"); return }
+
+	f, err := fh.Open()
+	if err != nil { resp.BadRequest(c, "cannot open uploaded file"); return }
+	defer f.Close()
+
+	const maxImageBytes = int64(5 << 20) // 5 MiB
+	lr := &io.LimitedReader{R: f, N: maxImageBytes + 1}
+	data, err := io.ReadAll(lr)
+	if err != nil { resp.ServerError(c, err); return }
+	if int64(len(data)) > maxImageBytes {
+		c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
+	}
+
+	ct := http.DetectContentType(data)
+	switch ct {
+	case "image/jpeg", "image/png", "image/webp", "image/gif":
+	default:
+		resp.BadRequest(c, "unsupported image type"); return
+	}
+
+	if err := rc.DB.Model(&m).Updates(map[string]any{
+		"image":      data,
+		"image_type": ct,
+		"image_size": int64(len(data)),
+	}).Error; err != nil {
+		resp.ServerError(c, err); return
+	}
+
+	sum := sha256.Sum256(data)
+	c.Header("ETag", fmt.Sprintf(`W/"%x"`, sum[:8]))
+	resp.OK(c, gin.H{"ok": true, "type": ct, "size": len(data)})
+}
+
+// GET /menus/:id/image   (public)
+func (rc *RestaurantController) GetMenuImage(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil { resp.BadRequest(c, "invalid id"); return }
+
+	var m entity.Menu
+	if err := rc.DB.Select("image, image_type, image_size").First(&m, id).Error; err != nil {
+		c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
+	}
+	if len(m.Image) == 0 {
+		c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
+	}
+
+	sum := sha256.Sum256(m.Image)
+	etag := fmt.Sprintf(`W/"%x"`, sum[:8])
+	if c.GetHeader("If-None-Match") == etag { c.Status(http.StatusNotModified); return }
+	c.Header("ETag", etag)
+	c.Header("Cache-Control", "public, max-age=86400")
+
+	ct := m.ImageType
+	if ct == "" { ct = http.DetectContentType(m.Image) }
+	c.Data(http.StatusOK, ct, m.Image)
+}
+
+// DELETE /partner/restaurant/menu/:id/image?restaurantId=xxx
+func (rc *RestaurantController) DeleteMenuImage(c *gin.Context) {
+	menuID64, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	if menuID64 == 0 { resp.BadRequest(c, "invalid menu id"); return }
+
+	var m entity.Menu
+	if err := rc.DB.Select("id, restaurant_id").First(&m, uint(menuID64)).Error; err != nil {
+		resp.BadRequest(c, "menu not found"); return
+	}
+	if _, ok := rc.ensureOwnerOrAdmin(c, m.RestaurantID); !ok { return }
+
+	if err := rc.DB.Model(&m).Updates(map[string]any{
+		"image": []byte(nil), "image_type": "", "image_size": 0,
+	}).Error; err != nil {
+		resp.ServerError(c, err); return
+	}
+	c.Status(http.StatusNoContent)
 }

@@ -22,14 +22,23 @@ func RegisterRoutes(r *gin.Engine) {
 	adminCtrl := controllers.NewAdminController(db)
 	appCtrl := controllers.NewRestaurantApplicationController(db)
 
-	// Auth
+	// Auth (public)
 	a := r.Group("/auth")
 	{
 		a.POST("/register", authCtrl.Register)
 		a.POST("/login", authCtrl.Login)
-		a.GET("/me", middlewares.AuthMiddleware(), authCtrl.Me)
+
+		a.POST("/me/avatar", middlewares.AuthMiddleware(), authCtrl.UploadAvatar)
+		a.GET("/me/avatar", middlewares.AuthMiddleware(), authCtrl.GetAvatar)
 	}
 
+	// Auth (protected)
+	aAuth := a.Group("", middlewares.AuthMiddleware())
+	{
+		aAuth.GET("/me", authCtrl.Me)
+		aAuth.PATCH("/me", authCtrl.UpdateMeRequest)
+	}
+	
 	// Public/User
 	r.GET("/restaurants", restCtrl.List)
 	r.GET("/restaurants/:id", restCtrl.Detail)

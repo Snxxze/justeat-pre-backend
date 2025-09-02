@@ -1,9 +1,10 @@
 package controllers
 
 import (
-	"time"
 	"fmt"
+	"net/http"
 	"strconv"
+	"time"
 
 	"backend/entity"
 	"backend/pkg/resp"
@@ -12,23 +13,60 @@ import (
 	"gorm.io/gorm"
 )
 
-type AdminController struct{ DB *gorm.DB }
-func NewAdminController(db *gorm.DB) *AdminController { return &AdminController{DB: db} }
+type AdminController struct{ 
+	DB *gorm.DB 
+}
+
+func NewAdminController(db *gorm.DB) *AdminController { 
+	return &AdminController{DB: db} 
+}
 
 // Dashboard: ตัวเลขรวม ๆ
 func (ac *AdminController) Dashboard(c *gin.Context) {
-	var totalUsers, totalRestaurants, pendingApps, ordersToday int64
-	ac.DB.Model(&entity.User{}).Count(&totalUsers)
-	ac.DB.Model(&entity.Restaurant{}).Count(&totalRestaurants)
-	ac.DB.Model(&entity.RestaurantApplication{}).Where("status = 'pending'").Count(&pendingApps)
+	db := ac.DB
 
-	start := time.Now().Truncate(24 * time.Hour)
-	ac.DB.Model(&entity.Order{}).Where("created_at >= ?", start).Count(&ordersToday)
+	// ตัวแปรผลลัพธ์
+	var totalUsers int64
+	var totalRestaurants int64
+	var pendingApps int64
+	var ordersToday int64
 
-	resp.OK(c, gin.H{
-		"totalUsers": totalUsers, "totalRestaurants": totalRestaurants,
-		"pendingApplications": pendingApps, "ordersToday": ordersToday,
-	})
+	// ผู้ใช้ทั้งหมด
+	if err := db.Model(&entity.User{}).Count(&totalUsers).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "count users failed"})
+		return
+	}
+
+	// ร้านทั้งหมด
+	if err := db.Model(&entity.Restaurant{}).Count(&totalRestaurants).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "count restaurants failed"})
+		return
+	}
+
+	// ใบสมัครร้านที่รออนุมัติ
+	if err := db.Model(&entity.RestaurantApplication{}).
+		Where("status = ?", "pending").
+		Count(&pendingApps).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "count pending application failed"})
+			return
+		}
+
+		// นับออเดอร์ของ วันนี้
+		start := time.Now().Truncate(24 * time.Hour)
+		if err := db.Model(&entity.Order{}).
+			Where("created_at >= ?", start).
+			Count(&ordersToday).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "count orders today failed"})
+				return
+			}
+
+		// ตอบกลับ
+		c.JSON(http.StatusOK, gin.H{
+			"totalUser":						totalUsers,
+			"totalRestaurants":			totalRestaurants,
+			"pendingApplications":	pendingApps,
+			"ordersToday":					ordersToday,
+		})
 }
 
 // รายการร้าน (page/limit)
