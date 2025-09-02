@@ -27,6 +27,9 @@ func RegisterRoutes(r *gin.Engine) {
 	{
 		a.POST("/register", authCtrl.Register)
 		a.POST("/login", authCtrl.Login)
+
+		a.POST("/me/avatar", middlewares.AuthMiddleware(), authCtrl.UploadAvatar)
+		a.GET("/me/avatar", middlewares.AuthMiddleware(), authCtrl.GetAvatar)
 	}
 
 	// Auth (protected)

@@ -1,9 +1,10 @@
 package controllers
 
 import (
+	"io"
 	"net/http"
-	"strings"
 	"strconv"
+	"strings"
 
 	"backend/entity"
 	"backend/utils"
@@ -138,6 +139,13 @@ func (a *AuthController) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot generate token"})
 		return
 	}
+	// user เคยอัปโหลดแล้ว
+	var avatarUrl string
+	if user.AvatarSize > 0 {
+		avatarUrl = "/auth/me/avatar"
+	} else {
+		avatarUrl = ""
+	}
 	
 	// ตอบกลับ
 	c.JSON(http.StatusOK, gin.H{
@@ -151,6 +159,7 @@ func (a *AuthController) Login(c *gin.Context) {
 			"phoneNumber": user.PhoneNumber,
 			"address": user.Address,
 			"role": user.Role,
+			"avatarUrl": avatarUrl,
 		},
 	})
 }
@@ -168,21 +177,33 @@ func (a *AuthController) Me(c *gin.Context) {
 	// ดึงข้อมูลผู้ใช้
 	var user entity.User
 	if err := a.DB.
-		Select("id, email, first_name, last_name, phone_number, address, role").
+		Select("id, email, first_name, last_name, phone_number, address, role, avatar_size").
 		First(&user, userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
+	// user เคยอัปโหลดแล้ว
+	var avatarUrl string
+	if user.AvatarSize > 0 {
+		avatarUrl = "/auth/me/avatar"
+	} else {
+		avatarUrl = ""
+	}
+
 	// ตอบกลับ
 	c.JSON(http.StatusOK, gin.H{
-		"id":						user.ID,
-		"email":				user.Email,
-		"firstName":		user.FirstName,
-		"lastName": 		user.LastName,
-		"phoneNumber": 	user.PhoneNumber,
-		"address":			user.Address,
-		"role": 				user.Role,
+		"ok":	true,
+		"user": gin.H{
+			"id":	user.ID,
+			"email": user.Email,
+			"firstName": user.FirstName,
+			"lastName": user.LastName,
+			"phoneNumber": user.PhoneNumber,
+			"address": user.Address,
+			"role": user.Role,
+			"avatarUrl": avatarUrl,
+		},
 	})
 }
 
@@ -292,4 +313,80 @@ func (a *AuthController) UpdateMeRequest(c *gin.Context) {
 			"role":        user.Role,
 		},
 	})
+}
+
+// POST /auth/me/avatar
+func (a *AuthController) UploadAvatar(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	fh, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "avatar is required"})
+		return
+	}
+
+	file, err := fh.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot open uploaded file"})
+		return
+	}
+	defer file.Close()
+
+	// จำกัดขนาดไฟล์ (เช่น 5MB)
+	const maxSize = 5 << 20
+	lr := &io.LimitedReader{R: file, N: maxSize + 1}
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "read error"})
+		return
+	}
+	if int64(len(data)) > maxSize {
+		// HTTP 413 ขนาดใหญ่เกิน
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
+		return
+	}
+
+	// ตรวจ type
+	ct := http.DetectContentType(data)
+	if !strings.HasPrefix(ct, "image/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported image type"})
+		return
+	}
+
+	// บันทึกลง DB
+	if err := a.DB.Model(&entity.User{}).Where("id = ?", userID).
+		Updates(map[string]any{
+			"avatar": data, "avatar_type": ct, "avatar_size": len(data),
+		}).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// GET /auth/me/avatar
+func (a *AuthController) GetAvatar(c *gin.Context) {
+	userID, ok := userIDFromCtx(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var u entity.User
+	if err := a.DB.Select("avatar, avatar_type, avatar_size").First(&u, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not Found"})
+		return
+	}
+
+	if len(u.Avatar) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no avatar"})
+		return
+	}
+
+	c.Data(http.StatusOK, u.AvatarType, u.Avatar)
 }
