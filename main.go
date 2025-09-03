@@ -6,12 +6,15 @@ import (
 
 	"backend/configs"
 	"backend/entity"
+	"backend/middlewares"
 	"backend/routes"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	cfg := configs.LoadConfig()
+	
 	// DB
 	configs.ConnectionDB()
 	db := configs.DB()
@@ -33,7 +36,8 @@ func main() {
 
 	// HTTP
 	r := gin.Default()
-	routes.RegisterRoutes(r)
+	r.Use(middlewares.CORSMiddleware())
+	routes.RegisterRoutes(r, db, cfg)
 
 	port := configs.LoadConfig().Port
 	addr := fmt.Sprintf(":%s", port)
