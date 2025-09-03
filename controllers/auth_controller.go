@@ -1,253 +1,142 @@
 package controllers
 
 import (
+	"backend/services"
+	"backend/utils"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
-	"backend/entity"
-	"backend/utils"
-
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
-// Request models
-type RegisterRequest struct {
-	Email       string `json:"email" 			binding:"required,email"`
-	Password    string `json:"password" 	binding:"required,min=6"`
-	FirstName   string `json:"firstName" 	binding:"required"`
-	LastName    string `json:"lastName" 	binding:"required"`
-	PhoneNumber string `json:"phoneNumber"`
-}
-type LoginRequest struct {
-	Email    string `json:"email" 		binding:"required,email"`
-	Password string `json:"password" 	binding:"required"`
+// AuthController รับผิดชอบเฉพาะ HTTP Layer (รับ request, ส่ง response)
+type AuthController struct {
+	authService *services.AuthService
 }
 
-type UpdateMeRequest struct {
-  FirstName   *string `json:"firstName"   binding:"omitempty,min=1,max=100"`
-  LastName    *string `json:"lastName"    binding:"omitempty,min=1,max=100"`
-  PhoneNumber *string `json:"phoneNumber" binding:"omitempty,max=32"`
-  Address     *string `json:"address"     binding:"omitempty,max=255"`
-}
-
-type AuthController struct{ 
-	DB *gorm.DB 
-}
-
-func NewAuthController(db *gorm.DB) *AuthController { 
-	return &AuthController{DB: db} 
+func NewAuthController(authService *services.AuthService) *AuthController {
+	return &AuthController{authService: authService}
 }
 
 // POST /auth/register
 func (a *AuthController) Register(c *gin.Context) {
-	// ตรวจรูปแบบ
-	var req RegisterRequest
+	var req struct {
+		Email       string `json:"email" binding:"required,email"`
+		Password    string `json:"password" binding:"required,min=6"`
+		FirstName   string `json:"firstName" binding:"required"`
+		LastName    string `json:"lastName" binding:"required"`
+		PhoneNumber string `json:"phoneNumber"`
+	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// ข้อมูลที่สำคัญ
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	first := strings.TrimSpace(req.FirstName)
-	last 	:= strings.TrimSpace(req.LastName)
-	phone := strings.TrimSpace(req.PhoneNumber)
-
-	// ตรวจสอบว่าอีเมลถูกใช้ลงทะเบียนไปแล้วหรือยัง
-	var count int64
-	if err := a.DB.Model(&entity.User{}).
-		Where("email = ?", email).
-		Count(&count).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
-			return
-	}
-	if count > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
-		return
-	}
-
-	// hash password
-	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	user, err := a.authService.Register(req.Email, req.Password, req.FirstName, req.LastName, req.PhoneNumber)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash password failed"})
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
-	// สร้าง
-	user := entity.User {
-		Email: 				email,
-		Password: 		string(hashed),
-		FirstName: 		first,
-		LastName: 		last,
-		PhoneNumber: 	phone,
-		Role: 				"customer",
-	}
-	// บันทึกลง
-	if err := a.DB.Create(&user).Error; err != nil {
-		// กันกรณีส่ง email เหมือนกันมา เวลาพร้อมๆกัน
-		if strings.Contains(strings.ToLower(err.Error()), "unique") || strings.Contains(strings.ToLower(err.Error()), "duplicate") {
-			c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
-		return
-	}
-
-	// HTTP 201 สำเร็จ
-	// ข้อมูลที่ส่งกลับ resp
 	c.JSON(http.StatusCreated, gin.H{
-		"id":						user.ID,
-		"email": 				user.Email,
-		"firstName": 		user.FirstName,
-		"lastName": 		user.LastName,
-		"phoneNumber": 	user.PhoneNumber,
-		"role":					user.Role,
+		"id":          user.ID,
+		"email":       user.Email,
+		"firstName":   user.FirstName,
+		"lastName":    user.LastName,
+		"phoneNumber": user.PhoneNumber,
+		"role":        user.Role,
 	})
 }
 
 // POST /auth/login
 func (a *AuthController) Login(c *gin.Context) {
-	// ตรวจรูปแบบ
-	var req LoginRequest
+	var req struct {
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required"`
+	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// หา user
-	email := strings.ToLower(strings.TrimSpace(req.Email))
-	var user entity.User
-	if err := a.DB.Where("email = ?", email).First(&user).Error; err != nil {
-		// HTTP 401 (Unauthorized)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
-		return
-	}
-
-	// เทียบรหัส
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
-		return
-	}
-
-	// ออก token ให้
-	token, err := utils.GenerateToken(user)
+	token, user, err := a.authService.Login(req.Email, req.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot generate token"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
-	// user เคยอัปโหลดแล้ว
-	var avatarUrl string
-	if user.AvatarSize > 0 {
-		avatarUrl = "/auth/me/avatar"
-	} else {
-		avatarUrl = ""
-	}
-	
-	// ตอบกลับ
+
 	c.JSON(http.StatusOK, gin.H{
-		"ok":	true,
+		"ok":    true,
 		"token": token,
 		"user": gin.H{
-			"id":	user.ID,
-			"email": user.Email,
-			"firstName": user.FirstName,
-			"lastName": user.LastName,
+			"id":          user.ID,
+			"email":       user.Email,
+			"firstName":   user.FirstName,
+			"lastName":    user.LastName,
 			"phoneNumber": user.PhoneNumber,
-			"address": user.Address,
-			"role": user.Role,
-			"avatarUrl": avatarUrl,
+			"address":     user.Address,
+			"role":        user.Role,
+			"avatarUrl":	 utils.BuildAvatarURL(user),
 		},
 	})
 }
 
-// GET /auth/me (ต้อง login)
+// GET /auth/me
 func (a *AuthController) Me(c *gin.Context) {
-	// ดึง userId 
-	userID, ok := userIDFromCtx(c)
-	if !ok {
-		// ไม่มี หรือ ไม่ได้ login
+	userIDAny, exists := c.Get("userId")
+	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	userID := userIDAny.(uint)
 
-	// ดึงข้อมูลผู้ใช้
-	var user entity.User
-	if err := a.DB.
-		Select("id, email, first_name, last_name, phone_number, address, role, avatar_size").
-		First(&user, userID).Error; err != nil {
+	user, err := a.authService.GetProfile(userID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
-	// user เคยอัปโหลดแล้ว
-	var avatarUrl string
-	if user.AvatarSize > 0 {
-		avatarUrl = "/auth/me/avatar"
-	} else {
-		avatarUrl = ""
-	}
-
-	// ตอบกลับ
 	c.JSON(http.StatusOK, gin.H{
-		"ok":	true,
+		"ok": true,
 		"user": gin.H{
-			"id":	user.ID,
-			"email": user.Email,
-			"firstName": user.FirstName,
-			"lastName": user.LastName,
+			"id":          user.ID,
+			"email":       user.Email,
+			"firstName":   user.FirstName,
+			"lastName":    user.LastName,
 			"phoneNumber": user.PhoneNumber,
-			"address": user.Address,
-			"role": user.Role,
-			"avatarUrl": avatarUrl,
+			"address":     user.Address,
+			"role":        user.Role,
+			"avatarUrl":	 utils.BuildAvatarURL(user),
 		},
 	})
 }
 
-// helper: ดึง userId จาก context ให้ครอบทุกเคสชนิดข้อมูลที่ middleware อาจใส่มา
-func userIDFromCtx(c *gin.Context) (uint, bool) {
-	v, exists := c.Get("userId")
-	if !exists || v == nil {
-		return 0, false
-	}
-	switch t := v.(type) {
-	case uint:
-		return t, true
-	case uint64:
-		return uint(t), true
-	case int:
-		if t > 0 {
-			return uint(t), true
-		}
-	case int64:
-		if t > 0 {
-			return uint(t), true
-		}
-	case string:
-		if id64, err := strconv.ParseUint(t, 10, 64); err == nil {
-			return uint(id64), true
-		}
-	}
-	return 0, false
-}
-
-func (a *AuthController) UpdateMeRequest(c *gin.Context) {
-	userID, ok := userIDFromCtx(c)
-	if !ok {
+// PATCH /auth/me
+func (a *AuthController) UpdateMe(c *gin.Context) {
+	// ดึง userId จาก context ที่ middleware set ไว้
+	userIDAny, exists := c.Get("userId")
+	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	userID := userIDAny.(uint)
 
-	var req UpdateMeRequest
+	// อ่านข้อมูลจาก body
+	var req struct {
+		FirstName   *string `json:"firstName"`
+		LastName    *string `json:"lastName"`
+		PhoneNumber *string `json:"phoneNumber"`
+		Address     *string `json:"address"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 3) เตรียม fields ที่จะอัปเดต (เฉพาะที่ส่งมา)
+	// เตรียม map ของ field ที่จะอัปเดต
 	updates := map[string]any{}
 	if req.FirstName != nil {
 		updates["first_name"] = strings.TrimSpace(*req.FirstName)
@@ -262,46 +151,25 @@ func (a *AuthController) UpdateMeRequest(c *gin.Context) {
 		updates["address"] = strings.TrimSpace(*req.Address)
 	}
 
-	// ถ้าไม่มีอะไรให้อัปเดต ก็คืนข้อมูลเดิม
+	// ถ้าไม่มี field ให้แก้ไข → โหลด user เดิมกลับมา
 	if len(updates) == 0 {
-		var u entity.User
-		if err := a.DB.
-			Select("id, email, first_name, last_name, phone_number, address, role").
-			First(&u, userID).Error; err != nil {
+		user, err := a.authService.GetProfile(userID)
+		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"user": gin.H{
-				"id":          u.ID,
-				"email":       u.Email,
-				"firstName":   u.FirstName,
-				"lastName":    u.LastName,
-				"phoneNumber": u.PhoneNumber,
-				"address":     u.Address,
-				"role":        u.Role,
-			},
-		})
+		c.JSON(http.StatusOK, gin.H{"user": user})
 		return
 	}
 
-	// อัปเดต
-	if err := a.DB.Model(&entity.User{}).
-		Where("id = ?", userID).
-		Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+	// อัปเดตใน DB
+	user, err := a.authService.UpdateProfile(userID, updates)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot update profile"})
 		return
 	}
 
-	// โหลดใหม่แล้วตอบกลับ (แน่ใจว่า FE ได้ค่าล่าสุด)
-	var user entity.User
-	if err := a.DB.
-		Select("id, email, first_name, last_name, phone_number, address, role").
-		First(&user, userID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "reload user failed"})
-		return
-	}
-
+	// ตอบกลับข้อมูลใหม่
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
 			"id":          user.ID,
@@ -311,17 +179,19 @@ func (a *AuthController) UpdateMeRequest(c *gin.Context) {
 			"phoneNumber": user.PhoneNumber,
 			"address":     user.Address,
 			"role":        user.Role,
+			"avatarUrl":   utils.BuildAvatarURL(user),
 		},
 	})
 }
 
 // POST /auth/me/avatar
 func (a *AuthController) UploadAvatar(c *gin.Context) {
-	userID, ok := userIDFromCtx(c)
-	if !ok {
+	userIDAny, exists := c.Get("userId")
+	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	userID := userIDAny.(uint)
 
 	fh, err := c.FormFile("avatar")
 	if err != nil {
@@ -336,53 +206,48 @@ func (a *AuthController) UploadAvatar(c *gin.Context) {
 	}
 	defer file.Close()
 
-	// จำกัดขนาดไฟล์ (เช่น 5MB)
-	const maxSize = 5 << 20
-	lr := &io.LimitedReader{R: file, N: maxSize + 1}
+	// จำกัดขนาด (5MB)
+	const masSize = 5 << 20
+	lr := &io.LimitedReader{R: file, N: masSize + 1}
 	data, err := io.ReadAll(lr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "read error"})
 		return
 	}
-	if int64(len(data)) > maxSize {
-		// HTTP 413 ขนาดใหญ่เกิน
+	if int64(len(data)) > masSize {
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
 		return
 	}
 
-	// ตรวจ type
 	ct := http.DetectContentType(data)
 	if !strings.HasPrefix(ct, "image/") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported image type"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "db error"})
 		return
 	}
 
-	// บันทึกลง DB
-	if err := a.DB.Model(&entity.User{}).Where("id = ?", userID).
-		Updates(map[string]any{
-			"avatar": data, "avatar_type": ct, "avatar_size": len(data),
-		}).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
-			return
-		}
+	// เรียก service ไปบันทึก
+	if err := a.authService.UploadAvatar(userID, data, ct); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
+	}
 
-		c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // GET /auth/me/avatar
 func (a *AuthController) GetAvatar(c *gin.Context) {
-	userID, ok := userIDFromCtx(c)
-	if !ok {
+	userIDAny, exists := c.Get("userId")
+	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	userID := userIDAny.(uint)
 
-	var u entity.User
-	if err := a.DB.Select("avatar, avatar_type, avatar_size").First(&u, userID).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not Found"})
+	u, err := a.authService.GetAvatar(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-
 	if len(u.Avatar) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no avatar"})
 		return
