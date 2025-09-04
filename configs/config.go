@@ -14,6 +14,7 @@ type Config struct {
 	Port      string
 	JWTSecret string
 	JWTTTL		time.Duration
+	EasySlipAPIKey string `mapstructure:"EASYSLIP_API_KEY"`
 }
 
 func LoadConfig() *Config {

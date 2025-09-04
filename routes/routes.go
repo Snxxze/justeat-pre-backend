@@ -11,12 +11,15 @@ import (
 	"gorm.io/gorm"
 )
 
-func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
-
+func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
+	//===== Auth =====
 	// repo -> serviec -> controller
 	userRepo := repository.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
 	authController := controllers.NewAuthController(authService)
+
+	// ===== Payments (เก็บสลิป Base64) =====
+	paymentCtl := controllers.NewPaymentController(db)
 
 	// Group: Auth
 	auth := r.Group("/auth")
@@ -51,5 +54,14 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 
 		// ถ้าอยากดึงเฉพาะอันเดียว
 		reports.GET("/:id", reportController.GetReportByID)
+	}
+
+	// ===== Payments =====
+	payments := r.Group("/payments")
+	payments.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		payments.POST("/upload-slip", paymentCtl.UploadSlip)
+		// (ทางเลือก) แสดงสลิปกลับมาให้แอดมินดู
+		// payments.GET("/:id/slip", paymentCtl.GetSlip)
 	}
 }

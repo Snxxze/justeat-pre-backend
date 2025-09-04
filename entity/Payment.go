@@ -6,18 +6,20 @@ import (
 )
 
 type Payment struct {
-	gorm.Model
-	Amount  int64      `json:"amount"`
-	SlipURL string     `json:"slipUrl"`
-	PaidAt  *time.Time `json:"paidAt,omitempty"`
+    gorm.Model
+    Amount  int64      `json:"amount"`
+    SlipURL string     `json:"slipUrl"`         // ของเดิม
+    SlipBase64 string  `gorm:"type:longtext" json:"slipBase64,omitempty"` // ของใหม่
+	SlipContentType string `gorm:"type:varchar(64)" json:"slipContentType,omitempty"`
 
-	PaymentMethodID uint          `json:"paymentMethodId"`
-	PaymentMethod   PaymentMethod `json:"-"` // preload เฉพาะตอนต้องการชื่อ method
+    PaidAt  *time.Time `json:"paidAt,omitempty"`
 
-	OrderID uint  `json:"orderId"`
-	Order   Order `json:"-"` // preload เฉพาะ endpoint /orders/:id
+    PaymentMethodID uint          `json:"paymentMethodId"`
+    PaymentMethod   PaymentMethod `json:"-"`
 
-	PaymentStatusID uint          `json:"paymentStatusId"`
-	PaymentStatus   PaymentStatus `json:"-"` // preload เฉพาะตอน detail
+    OrderID uint  `json:"orderId"`
+    Order   Order `json:"-"`
+
+    PaymentStatusID uint          `json:"paymentStatusId"`
+    PaymentStatus   PaymentStatus `json:"-"`
 }
-
