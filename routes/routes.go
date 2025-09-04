@@ -11,15 +11,15 @@ import (
 	"gorm.io/gorm"
 )
 
-func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
+func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	//===== Auth =====
 	// repo -> serviec -> controller
 	userRepo := repository.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
 	authController := controllers.NewAuthController(authService)
 
-	// Payment controller
-    paymentController := controllers.NewPaymentController(db)
+	// ===== Payments (เก็บสลิป Base64) =====
+	paymentCtl := controllers.NewPaymentController(db)
 
 	// Group: Auth
 	auth := r.Group("/auth")
@@ -37,19 +37,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 			auth.GET("/me/avatar", authController.GetAvatar)
 		}
 	}
-
-	// API group
-    api := r.Group("/api")
-    {
-        // Payment routes
-        payments := api.Group("/payments")
-        {
-            payments.POST("/upload-slip", paymentController.UploadSlip)
-            // เพิ่ม routes อื่นๆ ที่จำเป็น
-        }
-        
-        // ... routes อื่นๆ ของคุณ
-    }
 
 	// Reports
 	reportRepo := repository.NewReportRepository(db)
@@ -69,9 +56,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 		reports.GET("/:id", reportController.GetReportByID)
 	}
 
-	// ===== Payments (เก็บสลิป Base64) =====
-	paymentCtl := controllers.NewPaymentController(db)
-
+	// ===== Payments =====
 	payments := r.Group("/payments")
 	payments.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
