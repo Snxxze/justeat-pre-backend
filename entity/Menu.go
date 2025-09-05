@@ -11,10 +11,8 @@ type Menu struct {
 	Price    int64  `json:"price"`
 	Picture string `json:"picture"`
 
-	// --- รูปแบบ BLOB ---
-	Image     []byte `gorm:"type:blob" json:"-"` // เก็บเนื้อรูป (ไม่ serialize ออกใน JSON)
-	ImageType string `json:"-"`                  // เช่น "image/jpeg"
-	ImageSize int64  `json:"-"`                  // ขนาดเป็น byte
+	// --- รูปแบบ Base64 ---
+	Image     string
 
 	MenuTypeID   uint     `json:"menuTypeId"`
 	MenuType     MenuType `json:"-"` // preload เฉพาะตอน detail

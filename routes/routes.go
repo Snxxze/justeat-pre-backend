@@ -11,74 +11,80 @@ import (
 	"gorm.io/gorm"
 )
 
-func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
+func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 
-	// repo -> serviec -> controller
+	// ---------- Auth ----------
 	userRepo := repository.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
 	authController := controllers.NewAuthController(authService)
 
-	// Group: Auth
-	auth := r.Group("/auth")
+	authGroup := r.Group("/auth")
 	{
 		// Public route
-		auth.POST("/register", authController.Register)
-		auth.POST("/login", authController.Login)
+		authGroup.POST("/register", authController.Register)
+		authGroup.POST("/login", authController.Login)
 
 		// Protected
-		auth.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+		authGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 		{
-			auth.GET("/me", authController.Me)
-			auth.PATCH("/me", authController.UpdateMe)
-			auth.POST("/me/avatar", authController.UploadAvatar)
-			auth.GET("/me/avatar", authController.GetAvatar)
+			authGroup.GET("/me", authController.Me)
+			authGroup.PATCH("/me", authController.UpdateMe)
+			authGroup.POST("/me/avatar", authController.UploadAvatar)
+			authGroup.GET("/me/avatar", authController.GetAvatar)
 		}
 	}
 
-	// Reports
+	// ---------- Reports ----------
 	reportRepo := repository.NewReportRepository(db)
 	reportService := services.NewReportService(reportRepo)
 	reportController := controllers.NewReportController(reportService)
 
-	reports := r.Group("/reports")
-	reports.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	reportsGroup := r.Group("/reports")
+	reportsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		// Create Report
-		reports.POST("", reportController.CreateReport)
-
-		// Get All Reports (ของ user)
-		reports.GET("", reportController.ListReports)
-
-		// ถ้าอยากดึงเฉพาะอันเดียว
-		reports.GET("/:id", reportController.GetReportByID)
+		reportsGroup.POST("", reportController.CreateReport)   // Create Report
+		reportsGroup.GET("", reportController.ListReports)     // Get All Reports ของ user
+		reportsGroup.GET("/:id", reportController.GetReportByID) // Get Report by ID
 	}
 
-	// ---------- Restaurant ----------
+	// ---------- Restaurants ----------
 	restRepo := repository.NewRestaurantRepository(db)
 	restService := services.NewRestaurantService(restRepo)
 	restController := controllers.NewRestaurantController(restService)
 
-	partner := r.Group("/partner/restaurant")
-	partner.Use(middlewares.AuthMiddleware(cfg.JWTSecret)) // ป้องกันเฉพาะ partner
-	{
-		partner.GET("/menu", restController.Menus)
-		partner.POST("/menu", restController.CreateMenu)
-		partner.PATCH("/menu/:id", restController.UpdateMenu)
+	menuRepo := repository.NewMenuRepository(db)
+	menuService := services.NewMenuService(menuRepo)
+	menuController := controllers.NewMenuController(menuService)
 
-		partner.GET("/dashboard", restController.Dashboard)
+	// Public
+	r.GET("/restaurants", restController.List)
+	r.GET("/restaurants/:id", restController.Get)
+
+	// Public: ลูกค้าเห็นเมนูของร้าน
+	r.GET("/restaurants/:id/menus", menuController.ListByRestaurant)
+	r.GET("/menus/:id", menuController.Get)
+
+	// Owner
+	ownerGroup := r.Group("/owner")
+	ownerGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		ownerGroup.PATCH("/restaurants/:id", restController.Update)
+		ownerGroup.POST("/restaurants/:id/menus", menuController.Create)
+    ownerGroup.PATCH("/menus/:id", menuController.Update)
+    ownerGroup.DELETE("/menus/:id", menuController.Delete)
 	}
 
 	// ---------- Restaurant Applications ----------
-	RAppRepo := repository.NewRestaurantApplicationRepository(db)
-	RAppService := services.NewRestaurantApplicationService(RAppRepo)
-	RAController := controllers.NewRestaurantApplicationController(RAppService)
+	rAppRepo := repository.NewRestaurantApplicationRepository(db)
+	rAppService := services.NewRestaurantApplicationService(rAppRepo)
+	rAppController := controllers.NewRestaurantApplicationController(rAppService)
 
-	apps := r.Group("/partner/restaurant-applications")
-	apps.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	appsGroup := r.Group("/partner/restaurant-applications")
+	appsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		apps.POST("", RAController.Apply)           // ยื่นสมัคร
-		apps.GET("", RAController.List)             // แอดมินดูรายการ
-		apps.PATCH("/:id/approve", RAController.Approve) // อนุมัติ
-		apps.PATCH("/:id/reject", RAController.Reject)   // ปฏิเสธ
+		appsGroup.POST("", rAppController.Apply)              // ยื่นสมัคร
+		appsGroup.GET("", rAppController.List)                // แอดมินดูรายการ
+		appsGroup.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
+		appsGroup.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
 	}
 }

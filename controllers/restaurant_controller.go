@@ -18,83 +18,100 @@ func NewRestaurantController(s *services.RestaurantService) *RestaurantControlle
 	return &RestaurantController{Service: s}
 }
 
-// POST /partner/restaurant
-func (rc *RestaurantController) CreateRestaurant(c *gin.Context) {
+// ====== Response DTO ======
+type RestaurantResponse struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Address     string `json:"address"`
+	Description string `json:"description"`
+	Logo        string `json:"logo"`
+	OpeningTime string `json:"openingTime"`
+	ClosingTime string `json:"closingTime"`
+
+	Category struct {
+		ID   uint   `json:"id"`
+		Name string `json:"name"`
+	} `json:"category"`
+
+	Status struct {
+		ID   uint   `json:"id"`
+		Name string `json:"name"`
+	} `json:"status"`
+
+	Owner struct {
+		ID        uint   `json:"id"`
+		FirstName string `json:"firstName"`
+		LastName  string `json:"lastName"`
+		Email     string `json:"email"`
+	} `json:"owner"`
+}
+
+// ====== Public: ดูร้านทั้งหมด ======
+func (ctl *RestaurantController) List(c *gin.Context) {
+	rests, err := ctl.Service.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var resp []RestaurantResponse
+	for _, r := range rests {
+		item := mapToRestaurantResponse(&r)
+		resp = append(resp, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": resp})
+}
+
+// ====== Public: ดูร้านเดี่ยว ======
+func (ctl *RestaurantController) Get(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	r, err := ctl.Service.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "restaurant not found"})
+		return
+	}
+
+	resp := mapToRestaurantResponse(r)
+	c.JSON(http.StatusOK, resp)
+}
+
+// ====== Owner: อัปเดตร้านของตัวเอง ======
+func (ctl *RestaurantController) Update(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
 	var req entity.Restaurant
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// ถ้า frontend ส่ง picture base64 มาใน JSON
-	base64Img := ""
-	if req.Picture != "" {
-		base64Img = req.Picture
-		req.Picture = "" // เคลียร์ก่อนเพื่อกัน base64 ยาว ๆ ไปติดใน DB
-	}
-
-	id, err := rc.Service.CreateRestaurant(&req, base64Img)
-	if err != nil {
+	req.ID = uint(id)
+	if err := ctl.Service.Update(&req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"id": id})
+	c.JSON(http.StatusOK, gin.H{"message": "restaurant updated"})
 }
 
-// GET /partner/restaurant/menu
-func (rc *RestaurantController) Menus(c *gin.Context) {
-	restID, _ := strconv.Atoi(c.DefaultQuery("restaurantId", "0"))
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-
-	items, total, err := rc.Service.GetMenus(uint(restID), page, limit)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return
+// ====== Helper ======
+func mapToRestaurantResponse(r *entity.Restaurant) RestaurantResponse {
+	item := RestaurantResponse{
+		ID:          r.ID,
+		Name:        r.Name,
+		Address:     r.Address,
+		Description: r.Description,
+		Logo:        r.Picture,
+		OpeningTime: r.OpeningTime,
+		ClosingTime: r.ClosingTime,
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items, "page": page, "limit": limit, "total": total})
-}
-
-// POST /partner/restaurant/menu
-func (rc *RestaurantController) CreateMenu(c *gin.Context) {
-	var req entity.Menu
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
-	}
-
-	base64Img := c.PostForm("picture") // หรืออ่านจาก req.Picture ถ้าเป็น JSON
-	id, err := rc.Service.CreateMenu(&req, base64Img)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return
-	}
-	c.JSON(http.StatusCreated, gin.H{"id": id})
-}
-
-// PATCH /partner/restaurant/menu/:id
-func (rc *RestaurantController) UpdateMenu(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	var req map[string]any
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
-	}
-	var base64Img *string
-	if pic, ok := req["picture"].(string); ok && pic != "" {
-		base64Img = &pic
-	}
-	delete(req, "picture")
-
-	if err := rc.Service.UpdateMenu(uint(id), req, base64Img); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
-	}
-	c.JSON(http.StatusOK, gin.H{"id": id, "updated": 1})
-}
-
-// GET /partner/restaurant/dashboard
-func (rc *RestaurantController) Dashboard(c *gin.Context) {
-	restID, _ := strconv.Atoi(c.DefaultQuery("restaurantId", "0"))
-	orders, revenue, err := rc.Service.Dashboard(uint(restID))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return
-	}
-	c.JSON(http.StatusOK, gin.H{"ordersToday": orders, "revenue": revenue})
+	item.Category.ID = r.RestaurantCategory.ID
+	item.Category.Name = r.RestaurantCategory.CategoryName
+	item.Status.ID = r.RestaurantStatus.ID
+	item.Status.Name = r.RestaurantStatus.StatusName
+	item.Owner.ID = r.User.ID
+	item.Owner.FirstName = r.User.FirstName
+	item.Owner.LastName = r.User.LastName
+	item.Owner.Email = r.User.Email
+	return item
 }
