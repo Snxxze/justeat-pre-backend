@@ -5,9 +5,7 @@ import (
 )
 
 type PromoType struct {
-	gorm.Model
-	NameType string `gorm:"size:100;uniqueIndex;not null" json:"nameType"`
-
-	// ไม่จำเป็นต้องส่ง relation ทุกครั้ง
-	Promotions []Promotion `json:"-"`
+    gorm.Model
+    TypeName string `gorm:"type:text;not null;default:''"` 
+    Promotions []Promotion // เพิ่มความสัมพันธ์แบบ has many
 }

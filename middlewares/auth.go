@@ -29,7 +29,6 @@ func AuthMiddleware(secret string, requiredRoles ...string) gin.HandlerFunc {
 			}
 			return []byte(secret), nil
 		})
-
 		if err != nil || !token.Valid {
 			c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "error": "invalid token"})
 			c.Abort()
@@ -43,11 +42,12 @@ func AuthMiddleware(secret string, requiredRoles ...string) gin.HandlerFunc {
 			return
 		}
 
-		// set ค่าไว้ใน context
-		c.Set("userId", claims.UserID)
+		// set ค่าไว้ใน context (ตั้งทั้ง 2 คีย์เพื่อความเข้ากันได้)
+		c.Set("user_id", claims.UserID) // controller เก่าบางส่วนใช้อันนี้
+		c.Set("userId", claims.UserID)  // controller ใหม่ใช้อันนี้
 		c.Set("role", claims.Role)
 
-		// ---------------- Role Checking ----------------
+		// ---------------- Role Checking (ถ้าระบุมา) ----------------
 		if len(requiredRoles) > 0 {
 			allowed := false
 			for _, r := range requiredRoles {
