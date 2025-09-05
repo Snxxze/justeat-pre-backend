@@ -1,200 +1,201 @@
 package controllers
 
 import (
-	"errors"
+	"backend/entity"
+	"backend/services"
+	"backend/utils"
+	"net/http"
+	"strconv"
 	"time"
 
-	"backend/entity"
-	"backend/pkg/resp"
-	"backend/utils"
-
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
-type RestaurantApplicationController struct{ DB *gorm.DB }
-
-func NewRestaurantApplicationController(db *gorm.DB) *RestaurantApplicationController {
-	return &RestaurantApplicationController{DB: db}
+type RestaurantApplicationController struct {
+	Service *services.RestaurantApplicationService
 }
 
-// ===== ผู้ใช้ยื่นสมัคร =====
+func NewRestaurantApplicationController(s *services.RestaurantApplicationService) *RestaurantApplicationController {
+	return &RestaurantApplicationController{Service: s}
+}
+
+// ====== Request DTO ======
 type ApplyRestaurantReq struct {
 	Name                 string `json:"name" binding:"required"`
+	Phone 							 string `json:"phone"`
 	Address              string `json:"address"`
 	Description          string `json:"description"`
-	Picture              string `json:"picture"`
+	PictureBase64        string `json:"pictureBase64"`
+	OpeningTime          string `json:"openingTime" binding:"required"`
+	ClosingTime          string `json:"closingTime" binding:"required"`
 	RestaurantCategoryID uint   `json:"restaurantCategoryId" binding:"required"`
 }
 
+// ====== Response DTO ======
+type RestaurantApplicationResponse struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Address     string `json:"address"`
+	Phone 			string `json:"phone"`
+	Description string `json:"description"`
+	Logo        string `json:"logo"`
+	OpeningTime string `json:"openingTime"`
+	ClosingTime string `json:"closingTime"`
+	SubmittedAt string `json:"submittedAt"`
+
+	RestaurantCategory struct {
+		ID uint `json:"id"`
+		Name string `json:"name"`
+	} `json:"restaurantCategory"`
+
+	OwnerUser struct {
+		FirstName   string `json:"firstName"`
+		LastName    string `json:"lastName"`
+		Email       string `json:"email"`
+		PhoneNumber string `json:"phoneNumber"`
+	} `json:"ownerUser"`
+
+	Status string `json:"status"`
+}
+
+// Apply Response
+type ApplyResponse struct {
+	ID     uint   `json:"id"`
+	Status string `json:"status"`
+}
+
+// Approve Response
+type ApproveResponse struct {
+	ApplicationID uint   `json:"applicationId"`
+	RestaurantID  uint   `json:"restaurantId"`
+	Status        string `json:"status"`
+	OwnerUserID   uint   `json:"ownerUserId"`
+	NewRole       string `json:"newRole"`
+}
+
+// Reject Response
+type RejectResponse struct {
+	ApplicationID uint   `json:"applicationId"`
+	Status        string `json:"status"`
+	Reason        string `json:"reason"`
+}
+
+// ====== User สมัครร้าน ======
 func (ctl *RestaurantApplicationController) Apply(c *gin.Context) {
 	var req ApplyRestaurantReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.BadRequest(c, err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	app := entity.RestaurantApplication{
 		Name:                 req.Name,
+		Phone:                req.Phone,
 		Address:              req.Address,
 		Description:          req.Description,
-		Picture:              req.Picture,
+		OpeningTime:          req.OpeningTime,
+		ClosingTime:          req.ClosingTime,
 		RestaurantCategoryID: req.RestaurantCategoryID,
 		OwnerUserID:          utils.CurrentUserID(c),
-		Status:               "pending",
 	}
-	if err := ctl.DB.Create(&app).Error; err != nil {
-		resp.ServerError(c, err)
+
+	id, err := ctl.Service.Apply(&app, req.PictureBase64)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	resp.Created(c, gin.H{"id": app.ID, "status": app.Status})
+
+	c.JSON(http.StatusCreated, ApplyResponse{ID: id, Status: "pending"})
 }
 
-// ===== แอดมินดูรายการ/อนุมัติ/ปฏิเสธ =====
-
+// ====== Admin ดูรายการ ======
 func (ctl *RestaurantApplicationController) List(c *gin.Context) {
 	status := c.DefaultQuery("status", "pending")
-	type row struct {
-		ID                   uint      `json:"id"`
-		Name                 string    `json:"name"`
-		OwnerUserID          uint      `json:"ownerUserId"`
-		RestaurantCategoryID uint      `json:"restaurantCategoryId"`
-		Status               string    `json:"status"`
-		CreatedAt            time.Time `json:"createdAt"`
-	}
-	var items []row
-	if err := ctl.DB.Model(&entity.RestaurantApplication{}).
-		Select("id, name, owner_user_id, restaurant_category_id, status, created_at").
-		Where("status = ?", status).
-		Order("id DESC").Find(&items).Error; err != nil {
-		resp.ServerError(c, err)
+	apps, err := ctl.Service.List(status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	resp.OK(c, gin.H{"items": items})
+
+	var resp []RestaurantApplicationResponse
+	for _, app := range apps {
+		item := RestaurantApplicationResponse{
+			ID:          app.ID,
+			Name:        app.Name,
+			Address:     app.Address,
+			Description: app.Description,
+			Logo:        app.Picture,
+			Phone:			 app.Phone,
+			OpeningTime: app.OpeningTime,
+			ClosingTime: app.ClosingTime,
+			SubmittedAt: app.CreatedAt.Format(time.RFC3339),
+			Status:      app.Status,
+		}
+		item.RestaurantCategory.ID = app.RestaurantCategory.ID
+		item.RestaurantCategory.Name = app.RestaurantCategory.CategoryName
+		item.OwnerUser.FirstName = app.OwnerUser.FirstName
+		item.OwnerUser.LastName = app.OwnerUser.LastName
+		item.OwnerUser.Email = app.OwnerUser.Email
+		item.OwnerUser.PhoneNumber = app.OwnerUser.PhoneNumber
+
+		resp = append(resp, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": resp})
 }
 
-type ApproveReq struct {
-	RestaurantStatusID uint  `json:"restaurantStatusId"` // ถ้าไม่ส่ง ใช้ 1 (Open)
-	AdminID            *uint `json:"adminId,omitempty"`
-}
+// ====== Admin อนุมัติ ======
+type ApproveReq = services.ApproveReq
 
 func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
-	id := c.Param("id")
-
-	var app entity.RestaurantApplication
-	if err := ctl.DB.First(&app, id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			resp.BadRequest(c, "application not found")
-			return
-		}
-		resp.ServerError(c, err)
-		return
-	}
-	if app.Status != "pending" {
-		resp.BadRequest(c, "application is not pending")
-		return
-	}
+	idStr := c.Param("id")
+	appID, _ := strconv.Atoi(idStr)
 
 	var req ApproveReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.BadRequest(c, err.Error())
-		return
-	}
-	statusID := req.RestaurantStatusID
-	if statusID == 0 {
-		statusID = 1
-	} // e.g. Open
-
-	now := time.Now()
-	tx := ctl.DB.Begin()
-
-	// 1) สร้าง Restaurant จริง
-	r := entity.Restaurant{
-		Name: app.Name, Address: app.Address, Description: app.Description, Picture: app.Picture,
-		RestaurantCategoryID: app.RestaurantCategoryID,
-		RestaurantStatusID:   statusID,
-		UserID:               app.OwnerUserID,
-	}
-	if req.AdminID != nil {
-		r.AdminID = req.AdminID
-	}
-	if err := tx.Create(&r).Error; err != nil {
-		tx.Rollback()
-		resp.ServerError(c, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 2) อัปเกรดสิทธิ์เจ้าของ: customer -> owner (แต่ไม่แตะ admin/owner เดิม)
-	var owner entity.User
-	if err := tx.First(&owner, app.OwnerUserID).Error; err != nil {
-		tx.Rollback()
-		resp.ServerError(c, err)
-		return
-	}
-	if owner.Role == "" || owner.Role == "customer" {
-		if err := tx.Model(&owner).Update("role", "owner").Error; err != nil {
-			tx.Rollback()
-			resp.ServerError(c, err)
-			return
-		}
-	}
-
-	// 3) อัปเดตใบสมัคร -> approved
-	app.Status = "approved"
-	app.ReviewedAt = &now
-	app.AdminID = req.AdminID
-	if err := tx.Save(&app).Error; err != nil {
-		tx.Rollback()
-		resp.ServerError(c, err)
+	rest, owner, err := ctl.Service.Approve(uint(appID), req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := tx.Commit().Error; err != nil {
-		resp.ServerError(c, err)
-		return
-	}
-
-	resp.OK(c, gin.H{
-		"applicationId": app.ID,
-		"restaurantId":  r.ID,
-		"status":        app.Status,
-		"ownerUserId":   owner.ID,
-		"newRole":       owner.Role, // "owner" ถ้าเพิ่งอัปเกรด
+	c.JSON(http.StatusOK, ApproveResponse{
+		ApplicationID: uint(appID),
+		RestaurantID:  rest.ID,
+		Status:        "approved",
+		OwnerUserID:   owner.ID,
+		NewRole:       owner.Role,
 	})
 }
 
+// ====== Admin ปฏิเสธ ======
 type RejectReq struct {
 	Reason  string `json:"reason" binding:"required"`
 	AdminID *uint  `json:"adminId,omitempty"`
 }
 
 func (ctl *RestaurantApplicationController) Reject(c *gin.Context) {
-	id := c.Param("id")
-	var app entity.RestaurantApplication
-	if err := ctl.DB.First(&app, id).Error; err != nil {
-		resp.BadRequest(c, "application not found")
-		return
-	}
-	if app.Status != "pending" {
-		resp.BadRequest(c, "application is not pending")
-		return
-	}
+	idStr := c.Param("id")
+	appID, _ := strconv.Atoi(idStr)
 
 	var req RejectReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.BadRequest(c, err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	now := time.Now()
-	app.Status = "rejected"
-	app.ReviewedAt = &now
-	app.AdminID = req.AdminID
-	app.RejectReason = &req.Reason
-
-	if err := ctl.DB.Save(&app).Error; err != nil {
-		resp.ServerError(c, err)
+	if err := ctl.Service.Reject(uint(appID), req.Reason, req.AdminID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	resp.OK(c, gin.H{"applicationId": app.ID, "status": app.Status})
+
+	c.JSON(http.StatusOK, RejectResponse{
+		ApplicationID: uint(appID),
+		Status:        "rejected",
+		Reason:        req.Reason,
+	})
 }

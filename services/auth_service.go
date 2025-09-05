@@ -13,17 +13,17 @@ import (
 
 // AuthService จัดการ business logic ของการ login/register
 type AuthService struct {
-	userRepo *repository.UserRepository
+	userRepo  *repository.UserRepository
 	jwtSecret string
-	jwtTTL	time.Duration
+	jwtTTL    time.Duration
 }
 
 func NewAuthService(repo *repository.UserRepository, secret string, ttl time.Duration) *AuthService {
-    return &AuthService{
-        userRepo:  repo,
-        jwtSecret: secret,
-        jwtTTL:    ttl,
-    }
+	return &AuthService{
+		userRepo:  repo,
+		jwtSecret: secret,
+		jwtTTL:    ttl,
+	}
 }
 
 // Register สร้าง user ใหม่ ถ้า email ซ้ำจะ error
@@ -96,10 +96,18 @@ func (s *AuthService) UpdateProfile(userID uint, updates map[string]any) (*entit
 	return s.userRepo.FindByID(userID)
 }
 
-func (s *AuthService) UploadAvatar(userID uint, data []byte, contentType string) error {
-	return s.userRepo.SaveAvatar(userID, data, contentType)
+// ✅ Upload avatar (Base64)
+func (s *AuthService) UploadAvatarBase64(userID uint, b64 string) error {
+	if len(b64) > 10*1024*1024 { // limit 10MB
+		return errors.New("file too large")
+	}
+	if !strings.HasPrefix(b64, "data:image/") {
+		return errors.New("invalid image format")
+	}
+	return s.userRepo.SaveAvatarBase64(userID, b64)
 }
 
-func (s *AuthService) GetAvatar(userID uint) (*entity.User, error) {
-	return s.userRepo.GetAvatar(userID)
+// ✅ Get avatar (Base64)
+func (s *AuthService) GetAvatarBase64(userID uint) (string, error) {
+	return s.userRepo.FindAvatarBase64(userID)
 }

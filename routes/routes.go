@@ -52,4 +52,33 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 		// ถ้าอยากดึงเฉพาะอันเดียว
 		reports.GET("/:id", reportController.GetReportByID)
 	}
+
+	// ---------- Restaurant ----------
+	restRepo := repository.NewRestaurantRepository(db)
+	restService := services.NewRestaurantService(restRepo)
+	restController := controllers.NewRestaurantController(restService)
+
+	partner := r.Group("/partner/restaurant")
+	partner.Use(middlewares.AuthMiddleware(cfg.JWTSecret)) // ป้องกันเฉพาะ partner
+	{
+		partner.GET("/menu", restController.Menus)
+		partner.POST("/menu", restController.CreateMenu)
+		partner.PATCH("/menu/:id", restController.UpdateMenu)
+
+		partner.GET("/dashboard", restController.Dashboard)
+	}
+
+	// ---------- Restaurant Applications ----------
+	RAppRepo := repository.NewRestaurantApplicationRepository(db)
+	RAppService := services.NewRestaurantApplicationService(RAppRepo)
+	RAController := controllers.NewRestaurantApplicationController(RAppService)
+
+	apps := r.Group("/partner/restaurant-applications")
+	apps.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		apps.POST("", RAController.Apply)           // ยื่นสมัคร
+		apps.GET("", RAController.List)             // แอดมินดูรายการ
+		apps.PATCH("/:id/approve", RAController.Approve) // อนุมัติ
+		apps.PATCH("/:id/reject", RAController.Reject)   // ปฏิเสธ
+	}
 }

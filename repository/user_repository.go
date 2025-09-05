@@ -52,21 +52,25 @@ func (r *UserRepository) FindByID(id uint) (*entity.User, error) {
 	return &user, nil
 }
 
-// บันทึก avatar ลง DB
-func (r *UserRepository) SaveAvatar(userID uint, data []byte, contentType string) error {
-	return r.DB.Model(&entity.User{}).Where("id = ?", userID).
-		Updates(map[string]any{
-			"avatar":      data,
-			"avatar_type": contentType,
-			"avatar_size": len(data),
-		}).Error
+// ✅ บันทึก Avatar (Base64)
+func (r *UserRepository) SaveAvatarBase64(userID uint, b64 string) error {
+	return r.DB.Model(&entity.User{}).
+		Where("id = ?", userID).
+		Update("avatar_base64", b64).Error
 }
 
-// ดึง avatar ออกมา
-func (r *UserRepository) GetAvatar(userID uint) (*entity.User, error) {
+// ✅ ดึง Avatar (Base64)
+func (r *UserRepository) FindAvatarBase64(userID uint) (string, error) {
 	var u entity.User
-	if err := r.DB.Select("avatar, avatar_type, avatar_size").First(&u, userID).Error; err != nil {
-		return nil, err
+	if err := r.DB.Select("avatar_base64").First(&u, userID).Error; err != nil {
+		return "", err
 	}
-	return &u, nil
+	return u.AvatarBase64, nil
+}
+
+// ✅ ลบ Avatar (Base64)
+func (r *UserRepository) DeleteAvatarBase64(userID uint) error {
+	return r.DB.Model(&entity.User{}).
+		Where("id = ?", userID).
+		Update("avatar_base64", "").Error
 }
