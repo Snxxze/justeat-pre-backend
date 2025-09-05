@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"backend/entity"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -60,7 +61,6 @@ func SeedLookups() error {
 
 	// Payment
 	db.FirstOrCreate(&entity.PaymentMethod{}, entity.PaymentMethod{MethodName: "PromptPay"})
-	db.FirstOrCreate(&entity.PaymentMethod{}, entity.PaymentMethod{MethodName: "Credit Card"})
 	db.FirstOrCreate(&entity.PaymentMethod{}, entity.PaymentMethod{MethodName: "Cash on Delivery"})
 	db.FirstOrCreate(&entity.PaymentStatus{}, entity.PaymentStatus{StatusName: "Pending"})
 	db.FirstOrCreate(&entity.PaymentStatus{}, entity.PaymentStatus{StatusName: "Paid"})
@@ -89,5 +89,3 @@ func SeedLookups() error {
 	log.Println("✅ Lookup tables seeded")
 	return nil
 }
-
-

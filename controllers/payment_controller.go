@@ -31,7 +31,7 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 	
 	var req uploadSlipReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("❌ JSON bind error: %v", err) // Debug log
+		log.Printf("JSON bind error: %v", err) // Debug log
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
 	}
@@ -52,20 +52,20 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 	// 1) ตรวจว่า order มีจริง
 	var order entity.Order
 	if err := ctl.DB.First(&order, req.OrderID).Error; err != nil {
-		log.Printf("❌ Order not found: %v", err) // Debug log
+		log.Printf("Order not found: %v", err) // Debug log
 		c.JSON(http.StatusBadRequest, gin.H{"error": "order not found"})
 		return
 	}
 
-	log.Printf("✅ Order found: %+v", order) // Debug log
+	log.Printf("Order found: %+v", order) // Debug log
 
 	// 2) โหลด/สร้าง payment ผูกกับออเดอร์นี้
 	var p entity.Payment
 	if err := ctl.DB.Where("order_id = ?", order.ID).First(&p).Error; err != nil {
-		log.Println("📄 Creating new payment") // Debug log
+		log.Println("Creating new payment") // Debug log
 		p = entity.Payment{OrderID: order.ID}
 	} else {
-		log.Printf("📄 Found existing payment: %+v", p) // Debug log
+		log.Printf("Found existing payment: %+v", p) // Debug log
 	}
 
 	// 3) อัปเดตค่าและบันทึก
@@ -74,12 +74,12 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 	p.SlipContentType = req.ContentType
 
 	if err := ctl.DB.Save(&p).Error; err != nil {
-		log.Printf("❌ Save error: %v", err) // Debug log
+		log.Printf("Save error: %v", err) // Debug log
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "save failed"})
 		return
 	}
 
-	log.Printf("✅ Payment saved successfully: ID=%d", p.ID) // Debug log
+	log.Printf("Payment saved successfully: ID=%d", p.ID) // Debug log
 	c.JSON(http.StatusOK, gin.H{
     "success": true,
     "slipData": gin.H{

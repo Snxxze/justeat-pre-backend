@@ -22,34 +22,24 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
     paymentController := controllers.NewPaymentController(db)
 
 	// Group: Auth
-	auth := r.Group("/auth")
+	authGroup := r.Group("/auth")
 	{
 		// Public route
-		auth.POST("/register", authController.Register)
-		auth.POST("/login", authController.Login)
+		authGroup.POST("/register", authController.Register)
+		authGroup.POST("/login", authController.Login)
 
 		// Protected
-		auth.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+		authGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 		{
-			auth.GET("/me", authController.Me)
-			auth.PATCH("/me", authController.UpdateMe)
-			auth.POST("/me/avatar", authController.UploadAvatar)
-			auth.GET("/me/avatar", authController.GetAvatar)
+			authGroup.GET("/me", authController.Me)
+			authGroup.PATCH("/me", authController.UpdateMe)
+			authGroup.POST("/me/avatar", authController.UploadAvatar)
+			authGroup.GET("/me/avatar", authController.GetAvatar)
+
+			// payment
+			authGroup.POST("/me/payment", paymentController.UploadSlip)
 		}
 	}
-
-	// API group
-    api := r.Group("/api")
-    {
-        // Payment routes
-        payments := api.Group("/payments")
-        {
-            payments.POST("/upload-slip", paymentController.UploadSlip)
-            // เพิ่ม routes อื่นๆ ที่จำเป็น
-        }
-        
-        // ... routes อื่นๆ ของคุณ
-    }
 
 	// Reports
 	reportRepo := repository.NewReportRepository(db)
@@ -67,16 +57,5 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 
 		// ถ้าอยากดึงเฉพาะอันเดียว
 		reports.GET("/:id", reportController.GetReportByID)
-	}
-
-	// ===== Payments (เก็บสลิป Base64) =====
-	paymentCtl := controllers.NewPaymentController(db)
-
-	payments := r.Group("/payments")
-	payments.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
-	{
-		payments.POST("/upload-slip", paymentCtl.UploadSlip)
-		// (ทางเลือก) แสดงสลิปกลับมาให้แอดมินดู
-		// payments.GET("/:id/slip", paymentCtl.GetSlip)
 	}
 }
