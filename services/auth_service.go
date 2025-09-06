@@ -111,3 +111,12 @@ func (s *AuthService) UploadAvatarBase64(userID uint, b64 string) error {
 func (s *AuthService) GetAvatarBase64(userID uint) (string, error) {
 	return s.userRepo.FindAvatarBase64(userID)
 }
+
+
+func (s *AuthService) GetProfileWithRestaurant(userID uint) (*entity.User, *entity.Restaurant, error) {
+    return s.userRepo.FindWithRestaurant(userID)
+}
+
+func (s *AuthService) GetRestaurantByUserID(userID uint) (*entity.Restaurant, error) {
+    return s.userRepo.FindRestaurantByUserID(userID)
+}

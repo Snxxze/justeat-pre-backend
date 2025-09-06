@@ -31,6 +31,8 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 			authGroup.PATCH("/me", authController.UpdateMe)
 			authGroup.POST("/me/avatar", authController.UploadAvatar)
 			authGroup.GET("/me/avatar", authController.GetAvatar)
+
+			authGroup.GET("/me/restaurant", authController.MeRestaurant)
 		}
 	}
 
@@ -86,5 +88,16 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		appsGroup.GET("", rAppController.List)                // แอดมินดูรายการ
 		appsGroup.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
 		appsGroup.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
+	}
+
+	chatRepo := repository.NewChatRepository(db)
+	chatService := services.NewChatService(chatRepo)
+	chatController := controllers.NewChatController(chatService)
+
+	auth := r.Group("/chatrooms", middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		auth.GET("", chatController.ListRooms)
+		auth.GET("/:id/messages", chatController.ListMessages)
+		auth.POST("/:id/messages", chatController.SendMessage)
 	}
 }

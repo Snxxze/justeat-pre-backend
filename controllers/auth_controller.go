@@ -167,3 +167,25 @@ func (a *AuthController) GetAvatar(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"avatarBase64": b64})
 }
+
+// GET /auth/me/restaurant
+func (a *AuthController) MeRestaurant(c *gin.Context) {
+	userID := c.GetUint("userId")
+	role := c.GetString("role")
+
+	if role != "owner" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: not an owner"})
+			return
+	}
+
+	restaurant, err := a.authService.GetRestaurantByUserID(userID)
+	if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "restaurant not found"})
+			return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+			"ok": true,
+			"restaurant": restaurant,
+	})
+}

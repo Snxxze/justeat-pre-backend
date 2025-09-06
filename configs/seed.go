@@ -63,7 +63,6 @@ func SeedLookups() error {
 			Role:        "rider",
 	})
 
-	
 	// Restaurant
 	db.FirstOrCreate(&entity.Restaurant{}, entity.Restaurant{
     Name:        "Pizza Town",
@@ -117,7 +116,6 @@ func SeedLookups() error {
 
 	// Payment Method
 	db.FirstOrCreate(&entity.PaymentMethod{}, entity.PaymentMethod{MethodName: "PromptPay"})
-	db.FirstOrCreate(&entity.PaymentMethod{}, entity.PaymentMethod{MethodName: "Credit Card"})
 	db.FirstOrCreate(&entity.PaymentMethod{}, entity.PaymentMethod{MethodName: "Cash on Delivery"})
 
 	// Payment Status
