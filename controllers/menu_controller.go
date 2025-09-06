@@ -83,3 +83,23 @@ func (ctl *MenuController) Delete(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "menu deleted"})
 }
+
+// PATCH /owner/menus/:id/status
+func (ctl *MenuController) UpdateStatus(c *gin.Context) {
+    id, _ := strconv.Atoi(c.Param("id"))
+
+    var req struct {
+        MenuStatusID uint `json:"menuStatusId"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    if err := ctl.Service.UpdateStatus(uint(id), req.MenuStatusID); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"message": "menu status updated"})
+}

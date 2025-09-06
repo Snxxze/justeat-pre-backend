@@ -5,24 +5,22 @@ import (
 )
 
 type Menu struct {
-	gorm.Model
-	MenuName string `json:"menuName"`
-	Detail   string `json:"detail"`
-	Price    int64  `json:"price"`
-	Picture string `json:"picture"`
+    gorm.Model
+    Name   string `json:"name"`
+    Detail string `json:"detail"`
+    Price  int64  `json:"price"`
 
-	// --- รูปแบบ Base64 ---
-	Image     string
+    Image string `json:"image" gorm:"type:longtext"`
 
-	MenuTypeID   uint     `json:"menuTypeId"`
-	MenuType     MenuType `json:"-"` // preload เฉพาะตอน detail
+    MenuTypeID   uint     `json:"menuTypeId"`
+    MenuType     MenuType `json:"-"`
 
-	RestaurantID uint `json:"restaurantId"`
-	Restaurant   Restaurant `json:"-"` // preload เมื่อจำเป็น
+    RestaurantID uint       `json:"restaurantId"`
+    Restaurant   Restaurant `json:"-"`
 
-	MenuStatusID uint       `json:"menuStatusId"`
-	MenuStatus   MenuStatus `json:"-"` // preload เฉพาะ endpoint จัดการเมนู
+    MenuStatusID uint       `json:"menuStatusId"`
+    MenuStatus   MenuStatus `json:"-"`
 
-	Options    []Option    `gorm:"many2many:menu_options;" json:"-"`
-	OrderItems []OrderItem `json:"-"`
+    Options    []Option    `gorm:"many2many:menu_options;" json:"options"`
+    OrderItems []OrderItem `json:"-"`
 }

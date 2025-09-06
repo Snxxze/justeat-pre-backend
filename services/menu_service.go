@@ -33,3 +33,7 @@ func (s *MenuService) Update(menu *entity.Menu) error {
 func (s *MenuService) Delete(id uint) error {
 	return s.Repo.Delete(id)
 }
+
+func (s *MenuService) UpdateStatus(id uint, statusID uint) error {
+    return s.Repo.UpdateStatus(id, statusID)
+}

@@ -1,7 +1,7 @@
 package entity
 
 type MenuOption struct {
-	MenuID   uint `gorm:"primaryKey" json:"menuId"`
-	OptionID uint `gorm:"primaryKey" json:"optionId"`
-	SortOrder int `gorm:"not null;default:0" json:"sortOrder"`
+	MenuID    uint `gorm:"primaryKey;index:idx_menu_option"`
+	OptionID  uint `gorm:"primaryKey;index:idx_menu_option"`
+	// SortOrder int  `gorm:"not null;default:0"`
 }

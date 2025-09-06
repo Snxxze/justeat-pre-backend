@@ -22,7 +22,7 @@ func NewRestaurantApplicationController(s *services.RestaurantApplicationService
 // ====== Request DTO ======
 type ApplyRestaurantReq struct {
 	Name                 string `json:"name" binding:"required"`
-	Phone 							 string `json:"phone"`
+	Phone                string `json:"phone"`
 	Address              string `json:"address"`
 	Description          string `json:"description"`
 	PictureBase64        string `json:"pictureBase64"`
@@ -36,7 +36,7 @@ type RestaurantApplicationResponse struct {
 	ID          uint   `json:"id"`
 	Name        string `json:"name"`
 	Address     string `json:"address"`
-	Phone 			string `json:"phone"`
+	Phone       string `json:"phone"`
 	Description string `json:"description"`
 	Logo        string `json:"logo"`
 	OpeningTime string `json:"openingTime"`
@@ -44,7 +44,7 @@ type RestaurantApplicationResponse struct {
 	SubmittedAt string `json:"submittedAt"`
 
 	RestaurantCategory struct {
-		ID uint `json:"id"`
+		ID   uint   `json:"id"`
 		Name string `json:"name"`
 	} `json:"restaurantCategory"`
 
@@ -125,7 +125,7 @@ func (ctl *RestaurantApplicationController) List(c *gin.Context) {
 			Address:     app.Address,
 			Description: app.Description,
 			Logo:        app.Picture,
-			Phone:			 app.Phone,
+			Phone:       app.Phone,
 			OpeningTime: app.OpeningTime,
 			ClosingTime: app.ClosingTime,
 			SubmittedAt: app.CreatedAt.Format(time.RFC3339),

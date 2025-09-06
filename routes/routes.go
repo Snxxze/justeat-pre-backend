@@ -58,6 +58,16 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	menuService := services.NewMenuService(menuRepo)
 	menuController := controllers.NewMenuController(menuService)
 
+	// ---------- Menu Options ----------
+	menuOptRepo := repository.NewMenuOptionRepository(db)
+	menuOptService := services.NewMenuOptionService(menuOptRepo)
+	menuOptController := controllers.NewMenuOptionController(menuOptService)
+
+	// ---------- Options ----------
+	optRepo := repository.NewOptionRepository(db)
+	optService := services.NewOptionService(optRepo)
+	optController := controllers.NewOptionController(optService)
+
 	// Public
 	r.GET("/restaurants", restController.List)
 	r.GET("/restaurants/:id", restController.Get)
@@ -65,6 +75,12 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// Public: ลูกค้าเห็นเมนูของร้าน
 	r.GET("/restaurants/:id/menus", menuController.ListByRestaurant)
 	r.GET("/menus/:id", menuController.Get)
+	// Public: ลูกค้าดู options ของเมนูได้
+	r.GET("/menus/:id/options", menuOptController.ListByMenu)
+	
+	// ลูกค้า: ดู option ได้ (public)
+	r.GET("/options", optController.List)
+	r.GET("/options/:id", optController.Get)
 
 	// Owner
 	ownerGroup := r.Group("/owner")
@@ -74,6 +90,16 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		ownerGroup.POST("/restaurants/:id/menus", menuController.Create)
     ownerGroup.PATCH("/menus/:id", menuController.Update)
     ownerGroup.DELETE("/menus/:id", menuController.Delete)
+
+		ownerGroup.PATCH("/menus/:id/status", menuController.UpdateStatus)
+
+		// Option
+    ownerGroup.POST("/options", optController.Create)
+		ownerGroup.PATCH("/options/:id", optController.Update)
+		ownerGroup.DELETE("/options/:id", optController.Delete)
+
+		ownerGroup.POST("/menus/:id/options", menuOptController.AttachOption)
+		ownerGroup.DELETE("/menus/:id/options/:optionId", menuOptController.DetachOption)
 	}
 
 	// ---------- Restaurant Applications ----------

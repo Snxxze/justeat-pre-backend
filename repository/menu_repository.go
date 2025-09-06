@@ -18,6 +18,7 @@ func NewMenuRepository(db *gorm.DB) *MenuRepository {
 func (r *MenuRepository) FindByRestaurant(restID uint) ([]entity.Menu, error) {
 	var menus []entity.Menu
 	err := r.DB.
+		Preload("Options.OptionValues").
 		Preload("MenuType").
 		Preload("MenuStatus").
 		Where("restaurant_id = ?", restID).
@@ -29,6 +30,7 @@ func (r *MenuRepository) FindByRestaurant(restID uint) ([]entity.Menu, error) {
 func (r *MenuRepository) FindByID(id uint) (*entity.Menu, error) {
 	var menu entity.Menu
 	err := r.DB.
+		Preload("Options.OptionValues").
 		Preload("MenuType").
 		Preload("MenuStatus").
 		First(&menu, id).Error
@@ -45,10 +47,27 @@ func (r *MenuRepository) Create(menu *entity.Menu) error {
 
 // อัปเดตเมนู
 func (r *MenuRepository) Update(menu *entity.Menu) error {
-	return r.DB.Save(menu).Error
+	fields := map[string]interface{}{
+			"name":   menu.Name,
+			"detail": menu.Detail,
+			"price":  menu.Price,
+			"image":  menu.Image,
+			"menu_type_id":   menu.MenuTypeID,
+			"menu_status_id": menu.MenuStatusID,
+	}
+
+	return r.DB.Model(&entity.Menu{}).
+			Where("id = ?", menu.ID).
+			Updates(fields).Error
 }
 
 // ลบเมนู
 func (r *MenuRepository) Delete(id uint) error {
 	return r.DB.Delete(&entity.Menu{}, id).Error
+}
+
+func (r *MenuRepository) UpdateStatus(id uint, statusID uint) error {
+    return r.DB.Model(&entity.Menu{}).
+        Where("id = ?", id).
+        Update("menu_status_id", statusID).Error
 }
