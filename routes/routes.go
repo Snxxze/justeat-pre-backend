@@ -21,6 +21,20 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 	// Payment controller
     paymentController := controllers.NewPaymentController(db)
 
+
+	// 🔥 เพิ่ม API Group สำหรับ public endpoints
+    apiGroup := r.Group("/api")
+    {
+        // Payment endpoints (public)
+        paymentsGroup := apiGroup.Group("/payments")
+        {
+            paymentsGroup.POST("/upload-slip", paymentController.UploadSlip)
+            // เพิ่ม endpoints อื่นๆ ตามต้องการ
+            // paymentsGroup.GET("/status/:paymentId", paymentController.GetPaymentStatus)
+            // paymentsGroup.POST("/verify/:paymentId", paymentController.VerifyPayment)
+        }
+    }
+
 	// Group: Auth
 	authGroup := r.Group("/auth")
 	{
