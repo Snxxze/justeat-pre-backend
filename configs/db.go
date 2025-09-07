@@ -51,4 +51,5 @@ func SetupDatabase() {
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_reviews_user_order ON reviews (user_id, order_id)`)
 }

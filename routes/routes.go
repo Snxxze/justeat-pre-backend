@@ -52,4 +52,30 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 		// ถ้าอยากดึงเฉพาะอันเดียว
 		reports.GET("/:id", reportController.GetReportByID)
 	}
+
+	// ===== Orders (ต้องล็อกอิน) =====
+	orderCtrl := controllers.NewOrderController(db)
+	orders := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		orders.POST("/orders", orderCtrl.Create)
+		orders.GET("/orders/:id", orderCtrl.Detail)
+		orders.GET("/profile/order", orderCtrl.ListForMe) // ตามที่ controller ใช้ path นี้อยู่
+	}
+
+
+	// ===== Reviews =====
+	rv := controllers.NewReviewController(db)
+
+	// Public: ดูรีวิวของร้าน
+	r.GET("/restaurants/:id/reviews", rv.ListForRestaurant)
+
+	// Protected: สร้าง/ดูของตัวเอง
+	reviews := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		reviews.POST("/reviews", rv.Create)
+		reviews.GET("/profile/reviews", rv.ListForMe)
+		reviews.GET("/reviews/:id", rv.DetailForMe) // owner only (เช็คใน controller)
+	}
+
+
 }
