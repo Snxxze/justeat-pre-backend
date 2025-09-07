@@ -9,9 +9,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+
+	"log"
 )
 
 func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
+	log.Printf("[ROUTES] EasySlip len=%d", len(cfg.EasySlipAPIKey))
 	//===== Auth =====
 	// repo -> serviec -> controller
 	userRepo := repository.NewUserRepository(db)
@@ -19,16 +22,17 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 	authController := controllers.NewAuthController(authService)
 
 	// Payment controller
-    paymentController := controllers.NewPaymentController(db)
+    paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
 
 
-	// 🔥 เพิ่ม API Group สำหรับ public endpoints
+	//  เพิ่ม API Group สำหรับ public endpoints
     apiGroup := r.Group("/api")
     {
         // Payment endpoints (public)
         paymentsGroup := apiGroup.Group("/payments")
         {
             paymentsGroup.POST("/upload-slip", paymentController.UploadSlip)
+			paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
             // เพิ่ม endpoints อื่นๆ ตามต้องการ
             // paymentsGroup.GET("/status/:paymentId", paymentController.GetPaymentStatus)
             // paymentsGroup.POST("/verify/:paymentId", paymentController.VerifyPayment)

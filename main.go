@@ -15,6 +15,12 @@ import (
 func main() {
 	cfg := configs.LoadConfig()
 
+	log.Printf("[MAIN] EasySlip API Key present=%v len=%d", cfg.EasySlipAPIKey != "", len(cfg.EasySlipAPIKey))
+    
+    if cfg.EasySlipAPIKey == "" {
+        log.Fatal("EASYSLIP_API_KEY is required but not found in environment")
+    }
+
 	// DB
 	configs.ConnectionDB()
 	db := configs.DB()
