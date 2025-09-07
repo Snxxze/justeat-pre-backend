@@ -126,4 +126,15 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		auth.GET("/:id/messages", chatController.ListMessages)
 		auth.POST("/:id/messages", chatController.SendMessage)
 	}
+
+	orderRepo := repository.NewOrderRepository(db)
+	orderSvc  := services.NewOrderService(db, orderRepo)
+	orderCtl  := controllers.NewOrderController(orderSvc)
+
+	authOrder := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret)) // ใช้ middleware เดิมของคุณ
+	{
+		authOrder.POST("/orders", orderCtl.Create)
+		authOrder.GET("/profile/orders", orderCtl.ListForMe)
+		authOrder.GET("/orders/:id", orderCtl.Detail)
+	}
 }
