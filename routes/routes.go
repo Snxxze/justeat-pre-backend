@@ -138,16 +138,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		authOrder.GET("/orders/:id", orderCtl.Detail)
 	}
 
-	// ===== Orders (ต้องล็อกอิน) =====
-	orderCtrl := controllers.NewOrderController(db)
-	orders := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
-	{
-		orders.POST("/orders", orderCtrl.Create)
-		orders.GET("/orders/:id", orderCtrl.Detail)
-		orders.GET("/profile/order", orderCtrl.ListForMe) // ตามที่ controller ใช้ path นี้อยู่
-	}
-
-
 	// ===== Reviews =====
 	rv := controllers.NewReviewController(db)
 
