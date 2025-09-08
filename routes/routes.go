@@ -120,21 +120,33 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	chatService := services.NewChatService(chatRepo)
 	chatController := controllers.NewChatController(chatService)
 
-	auth := r.Group("/chatrooms", middlewares.AuthMiddleware(cfg.JWTSecret))
-	{
-		auth.GET("", chatController.ListRooms)
-		auth.GET("/:id/messages", chatController.ListMessages)
-		auth.POST("/:id/messages", chatController.SendMessage)
+	chatGroup := r.Group("/chatrooms", middlewares.AuthMiddleware(cfg.JWTSecret))
+ 	{
+    chatGroup.GET("", chatController.ListRooms)
+    chatGroup.GET("/:id/messages", chatController.ListMessages)
+    chatGroup.POST("/:id/messages", chatController.SendMessage)
 	}
 
+	cartRepo  := repository.NewCartRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
-	orderSvc  := services.NewOrderService(db, orderRepo)
+
+	orderSvc  := services.NewOrderService(db, orderRepo, cartRepo)
 	orderCtl  := controllers.NewOrderController(orderSvc)
 
-	authOrder := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret)) // ใช้ middleware เดิมของคุณ
+	cartSvc   := services.NewCartService(db, cartRepo, orderRepo)
+	cartCtl   := controllers.NewCartController(cartSvc)
+
+	authOrder := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
 		authOrder.POST("/orders", orderCtl.Create)
 		authOrder.GET("/profile/orders", orderCtl.ListForMe)
 		authOrder.GET("/orders/:id", orderCtl.Detail)
+
+		authOrder.GET("/cart", cartCtl.Get)
+		authOrder.POST("/cart/items", cartCtl.Add)
+		authOrder.PATCH("/cart/items/qty", cartCtl.UpdateQty)
+		authOrder.DELETE("/cart/items", cartCtl.RemoveItem)
+		authOrder.DELETE("/cart", cartCtl.Clear)
+		authOrder.POST("/orders/checkout-from-cart", orderCtl.CheckoutFromCart)
 	}
 }

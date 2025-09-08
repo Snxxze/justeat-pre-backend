@@ -71,11 +71,11 @@ func (r *OrderRepository) CreateOrderItemSelections(tx *gorm.DB, rows []entity.O
 
 // ---------- Queries for list/detail ----------
 type OrderSummary struct {
-	ID            uint      `json:"id"`
-	RestaurantID  uint      `json:"restaurantId"`
-	Total         int64     `json:"total"`
-	OrderStatusID uint      `json:"orderStatusId"`
-	CreatedAt     time.Time`json:"createdAt"`
+    ID            uint       `json:"id"`
+    RestaurantID  uint       `json:"restaurantId"`
+    Total         int64      `json:"total"`
+    OrderStatusID uint       `json:"orderStatusId"`
+    CreatedAt     time.Time  `json:"createdAt"` 
 }
 
 func (r *OrderRepository) ListOrdersForUser(userID uint, limit int) ([]OrderSummary, error) {

@@ -3,6 +3,7 @@ package controllers
 import (
 	"net/http"
 	"strconv"
+	"errors"
 
 	"backend/services"
 
@@ -35,23 +36,13 @@ func (h *OrderController) Create(c *gin.Context) {
 
 	res, err := h.Svc.Create(uid, &req)
 	if err != nil {
-		switch err {
-		case services.ErrEmptyItems:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "items is required"})
-		case services.ErrRestaurantNotFound:
-			c.JSON(http.StatusNotFound, gin.H{"error": "restaurant not found"})
-		case services.ErrMenuNotInRestaurant:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "menu not in this restaurant"})
-		case services.ErrInvalidOptionValue:
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid option values"})
-		default:
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "menu not found"})
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			}
-		}
-		return
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+    }
+    // ที่เหลือถือเป็นปัญหา validation → 400
+    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    return
 	}
 
 	c.JSON(http.StatusCreated, res) // { id, total }
@@ -100,7 +91,7 @@ func (h *OrderController) Detail(c *gin.Context) {
 
 	out, err := h.Svc.DetailForUser(uid, uint(id))
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -108,4 +99,26 @@ func (h *OrderController) Detail(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// POST /orders/checkout-from-cart
+func (h *OrderController) CheckoutFromCart(c *gin.Context) {
+	v, ok := c.Get("userId")
+	if !ok || v == nil { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+	uid, ok := v.(uint)
+	if !ok || uid == 0 { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+
+	res, err := h.Svc.CreateFromCart(uid)
+	if err != nil {
+		switch err.Error() {
+		case "cart is empty", "cart has no restaurant":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		default:
+			// ถ้าอยากละเอียดกว่านี้ ค่อยแตกข้อความ/ชนิดเพิ่มได้
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	c.JSON(http.StatusCreated, res)
 }

@@ -8,21 +8,14 @@ import (
 	"gorm.io/gorm"
 )
 
-var (
-	ErrEmptyItems           = errors.New("empty items")
-	ErrRestaurantNotFound   = errors.New("restaurant not found")
-	ErrMenuNotFound         = errors.New("menu not found")
-	ErrMenuNotInRestaurant  = errors.New("menu not in this restaurant")
-	ErrInvalidOptionValue   = errors.New("invalid option values for menu")
-)
-
 type OrderService struct {
 	DB   *gorm.DB
 	Repo *repository.OrderRepository
+	CartRepo *repository.CartRepository
 }
 
-func NewOrderService(db *gorm.DB, repo *repository.OrderRepository) *OrderService {
-	return &OrderService{DB: db, Repo: repo}
+func NewOrderService(db *gorm.DB, repo *repository.OrderRepository, cartRepo *repository.CartRepository) *OrderService {
+	return &OrderService{DB: db, Repo: repo, CartRepo: cartRepo}
 }
 
 // ----- DTOs from Controller -----
@@ -48,19 +41,19 @@ type CreateOrderRes struct {
 // ----- Create -----
 func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes, error) {
 	if len(req.Items) == 0 {
-		return nil, ErrEmptyItems
+		return nil, errors.New("items is required")
 	}
 	// ร้านต้องมีจริง
 	ok, err := s.Repo.RestaurantExists(req.RestaurantID)
 	if err != nil { return nil, err }
-	if !ok { return nil, ErrRestaurantNotFound }
+	if !ok { return nil, errors.New("restaurant not found") }
 
 	// เมนูทั้งหมดต้องอยู่ร้านนี้
 	menuIDs := make([]uint, 0, len(req.Items))
 	for _, it := range req.Items { menuIDs = append(menuIDs, it.MenuID) }
 	ok, err = s.Repo.ValidateMenusBelongToRestaurant(menuIDs, req.RestaurantID)
 	if err != nil { return nil, err }
-	if !ok { return nil, ErrMenuNotInRestaurant }
+	if !ok { return nil, errors.New("menu not in this restaurant") }
 
 	// คำนวณราคา & เตรียม payload
 	type calc struct {
@@ -76,7 +69,7 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 	for _, it := range req.Items {
 		m, err := s.Repo.GetMenuBasics(it.MenuID)
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) { return nil, ErrMenuNotFound }
+			if errors.Is(err, gorm.ErrRecordNotFound) { return nil, errors.New("menu not found") }
 			return nil, err
 		}
 
@@ -86,7 +79,7 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 		if len(valueIDs) > 0 {
 			cnt, err := s.Repo.CountOptionValuesBelongToMenu(m.ID, valueIDs)
 			if err != nil { return nil, err }
-			if cnt != int64(len(valueIDs)) { return nil, ErrInvalidOptionValue }
+			if cnt != int64(len(valueIDs)) { return nil, errors.New("invalid option values") }
 		}
 
 		// ดึงรายละเอียด option values เพื่อรู้ price delta
@@ -171,4 +164,76 @@ func (s *OrderService) DetailForUser(userID, orderID uint) (*OrderDetail, error)
 		ID: o.ID, Subtotal: o.Subtotal, Discount: o.Discount, DeliveryFee: o.DeliveryFee,
 		Total: o.Total, OrderStatusID: o.OrderStatusID, RestaurantID: o.RestaurantID, Items: items,
 	}, nil
+}
+
+// สร้างออเดอร์จากตะกร้าใน DB
+func (s *OrderService) CreateFromCart(userID uint) (*CreateOrderRes, error) {
+	cart, err := s.CartRepo.GetCartWithItems(userID)
+	if err != nil { return nil, err }
+	if cart.RestaurantID == 0 {
+		return nil, errors.New("cart has no restaurant")
+	}
+	if len(cart.Items) == 0 {
+		return nil, errors.New("cart is empty")
+	}
+
+	// คำนวณราคา (ใช้ snapshot จาก cart)
+	var subtotal int64
+	for _, it := range cart.Items {
+		// UnitPrice & Total เป็น snapshot อยู่แล้ว
+		subtotal += it.Total
+	}
+	discount := int64(0)     // MVP
+	delivery := int64(20)    // MVP flat
+	total := subtotal - discount + delivery
+	const pending uint = 1   // หรือ lookup จริงจากตารางก็ได้
+
+	var out CreateOrderRes
+	err = s.DB.Transaction(func(tx *gorm.DB) error {
+		order := entity.Order{
+			UserID: userID,
+			RestaurantID: cart.RestaurantID,
+			OrderStatusID: pending,
+			Subtotal: subtotal,
+			Discount: discount,
+			DeliveryFee: delivery,
+			Total: total,
+		}
+		if err := s.Repo.CreateOrder(tx, &order); err != nil { return err }
+
+		// แปลง CartItem -> OrderItem
+		for _, it := range cart.Items {
+			oi := entity.OrderItem{
+				OrderID:   order.ID,
+				MenuID:    it.MenuID,
+				Qty:       it.Qty,
+				UnitPrice: it.UnitPrice,
+				Total:     it.Total,
+			}
+			if err := s.Repo.CreateOrderItem(tx, &oi); err != nil { return err }
+
+			// แปลง selections
+			if len(it.Selections) > 0 {
+				rows := make([]entity.OrderItemSelection, 0, len(it.Selections))
+				for _, sRow := range it.Selections {
+					rows = append(rows, entity.OrderItemSelection{
+						OrderItemID: oi.ID,
+						OptionID:      sRow.OptionID,
+						OptionValueID: sRow.OptionValueID,
+						PriceDelta:    sRow.PriceDelta,
+					})
+				}
+				if err := s.Repo.CreateOrderItemSelections(tx, rows); err != nil { return err }
+			}
+		}
+
+		// เคลียร์ตะกร้า
+		if err := s.CartRepo.ClearCart(tx, userID); err != nil { return err }
+
+		out = CreateOrderRes{ ID: order.ID, Total: order.Total }
+		return nil
+	})
+
+	if err != nil { return nil, err }
+	return &out, nil
 }
