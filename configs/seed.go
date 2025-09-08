@@ -86,6 +86,6 @@ func SeedLookups() error {
 	db.FirstOrCreate(&entity.IssueType{}, entity.IssueType{TypeName: "Wrong Item"})
 	db.FirstOrCreate(&entity.IssueType{}, entity.IssueType{TypeName: "Payment Failed"})
 
-	log.Println("✅ Lookup tables seeded")
+	log.Println("Lookup tables seeded")
 	return nil
 }

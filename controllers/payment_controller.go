@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"time"
 )
 
@@ -28,7 +29,7 @@ type PaymentController struct {
 	paidStatusID uint
 }
 
-// ===== Helpers เพิ่ม helper สำหรับตัด header data:image/...;base64, =====
+// ===== เพิ่ม helper สำหรับตัด header data:image/...;base64, =====
 func stripDataURLHeader(b64 string) string {
 	// ตัดส่วน "data:image/png;base64," ออก ถ้ามี
 	if i := strings.Index(b64, ","); i != -1 {
@@ -70,9 +71,12 @@ type uploadSlipResponse struct {
 }
 
 func (ctl *PaymentController) UploadSlip(c *gin.Context) {
+	var req uploadSlipReq
+	var order entity.Order
+	var p entity.Payment
+
 	log.Println(" UploadSlip endpoint called")
 
-	var req uploadSlipReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("JSON bind error: %v", err)
 		c.JSON(http.StatusBadRequest, uploadSlipResponse{
@@ -82,7 +86,7 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 		return
 	}
 
-	log.Printf(" Request data: OrderID=%d, Amount=%d, ContentType=%s, Base64 length=%d",
+	log.Printf(" Request data: OrderID = %d, Amount = %d, ContentType = %s, Base64 length = %d",
 		req.OrderID, req.Amount, req.ContentType, len(req.SlipBase64))
 
 	//  เพิ่มการตรวจสอบ base64 ว่าเป็น valid image
@@ -115,7 +119,6 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 	}
 
 	// 1) ตรวจว่า order มีจริง
-	var order entity.Order
 	if err := ctl.DB.First(&order, req.OrderID).Error; err != nil {
 		log.Printf("Order not found: %v", err)
 		if err == gorm.ErrRecordNotFound {
@@ -132,10 +135,7 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 		return
 	}
 
-	// log.Printf("Order found: ID=%d, Status=%s", order.ID, order.OrderStatusID)
-
 	// 2) โหลด/สร้าง payment ผูกกับออเดอร์นี้
-	var p entity.Payment
 	if err := ctl.DB.Where("order_id = ?", order.ID).First(&p).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			log.Println("Creating new payment")
@@ -150,6 +150,15 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 		}
 	} else {
 		log.Printf("Found existing payment: ID=%d", p.ID)
+	}
+
+	// 2.1) ถ้าเคยชำระสำเร็จแล้ว ไม่ให้ส่งอีก
+	if p.PaidAt != nil {
+		c.JSON(http.StatusConflict, uploadSlipResponse{
+			Success: false,
+			Error:   "already_paid",
+		})
+		return
 	}
 
 	// 3) อัปเดตค่าและบันทึก
@@ -177,7 +186,7 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 			TransRef  string  `json:"transRef"`
 		}{
 			PaymentID: int(p.ID),
-			Amount:    float64(req.Amount) / 100, // แปลงจากสตางค์กลับเป็นบาท
+			Amount:    float64(req.Amount) / 100.0, // แปลงจากสตางค์กลับเป็นบาท
 			TransRef:  fmt.Sprintf("TXN-%d", p.ID),
 		},
 	}
@@ -193,10 +202,10 @@ type easySlipVerifyReq struct {
 }
 
 type EasySlipAmount struct {
-	Amount int64 `json:"amount"`
+	Amount float64 `json:"amount"` // บาท
 	Local  struct {
-		Amount   int64  `json:"amount"`
-		Currency string `json:"currency"`
+		Amount   float64 `json:"amount"` // บาท
+		Currency string  `json:"currency"`
 	} `json:"local"`
 }
 
@@ -255,7 +264,7 @@ type easySlipErrResp struct {
 // ====== Request จาก frontend เวลา verify ======
 type verifySlipReq struct {
 	OrderID        int    `json:"orderId" binding:"required"`
-	AmountSatang   int64  `json:"amount"`      // สตางค์ (อาจ 0 = ไม่เช็ค)
+	Amount         int64  `json:"amount"`
 	ContentType    string `json:"contentType"` // image/png, image/jpeg
 	SlipBase64     string `json:"slipBase64" binding:"required"`
 	CheckDuplicate *bool  `json:"checkDuplicate,omitempty"`
@@ -263,12 +272,7 @@ type verifySlipReq struct {
 
 // POST /api/payments/verify-easyslip
 func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
-	log.Printf("[VERIFY] token len=%d", len(ctl.EasySlipToken))
-	if ctl.EasySlipToken == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "missing_easyslip_token"})
-		return
-	}
-
+	// 1) bind + validate
 	var req verifySlipReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
@@ -278,16 +282,49 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing_base64"})
 		return
 	}
-	// default checkDuplicate = true (ออปชัน)
 	if req.CheckDuplicate == nil {
 		def := true
 		req.CheckDuplicate = &def
 	}
+	if ctl.EasySlipToken == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "missing_easyslip_token"})
+		return
+	}
 
-	// --- เตรียม base64 ส่งให้ EasySlip (ต้องไม่มี header) ---
+	// 2) โหลด order + payment ก่อน แล้วเช็ค already_paid “ตรงนี้”
+	var order entity.Order
+	if err := ctl.DB.First(&order, req.OrderID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("order %d not found", req.OrderID)})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db_find_order_error"})
+		}
+		return
+	}
+
+	var p entity.Payment
+	if err := ctl.DB.Where("order_id = ?", order.ID).First(&p).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			p = entity.Payment{OrderID: order.ID}
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db_find_payment_error"})
+			return
+		}
+	}
+	log.Printf("[VERIFY] order = %d paymentID = %d already_paid = %v", order.ID, p.ID, p.PaidAt != nil)
+
+	// ✅ ถ้าจ่ายแล้ว ตัดจบทันที — อย่าเรียก EasySlip
+	if p.PaidAt != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"success":   false,
+			"error":     "already_paid",
+			"paymentId": p.ID,
+		})
+		return
+	}
+
+	// 3) เตรียมรูปแล้วค่อยเรียก EasySlip
 	b64 := stripDataURLHeader(req.SlipBase64)
-
-	// ✅ เรียก EasySlip
 	body, _ := json.Marshal(easySlipVerifyReq{
 		Image:          b64,
 		CheckDuplicate: req.CheckDuplicate,
@@ -296,7 +333,8 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
 
-	httpReq, _ := http.NewRequestWithContext(ctx, "POST", "https://developer.easyslip.com/api/v1/verify", bytes.NewReader(body))
+	httpReq, _ := http.NewRequestWithContext(ctx, "POST",
+		"https://developer.easyslip.com/api/v1/verify", bytes.NewReader(body))
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+ctl.EasySlipToken)
 
@@ -314,72 +352,41 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 			return
 		}
 
-		// ✅ ตรวจยอด ถ้าฝั่ง frontend ส่งมาเป็นสตางค์
-		matched := (req.AmountSatang == 0) || (ok.Data.Amount.Amount == req.AmountSatang)
+		rawBaht := ok.Data.Amount.Amount
+		slipSatang := int64(math.Round(rawBaht * 100))
+		matched := (req.Amount == 0) || (slipSatang == req.Amount)
 
-		// ====== NEW: บันทึก/อัปเดต Payment ลง DB ======
-		// 1) เช็คว่า Order มีจริง
-		var order entity.Order
-		if err := ctl.DB.First(&order, req.OrderID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("order %d not found", req.OrderID)})
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "db_find_order_error"})
-			}
-			return
-		}
-
-		// 2) หา Payment เดิมของออเดอร์นี้ หรือสร้างใหม่
-		var p entity.Payment
-		if err := ctl.DB.Where("order_id = ?", order.ID).First(&p).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				p = entity.Payment{OrderID: order.ID}
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "db_find_payment_error"})
-				return
-			}
-		}
-
-		// 3) อัปเดตฟิลด์
-		// - เก็บ base64 ที่ไม่มี header เพื่อลดขนาด
-		// - ContentType จาก client (ควรเริ่มด้วย "image/")
+		// อัปเดต payment
 		if req.ContentType == "" || !strings.HasPrefix(req.ContentType, "image/") {
-			// ไม่ fail แต่อย่างน้อยให้บันทึกเป็น image/* เพื่อความปลอดภัย
 			req.ContentType = "image/*"
 		}
 		p.SlipBase64 = b64
 		p.SlipContentType = req.ContentType
-
-		// - ยอดใช้ของจริงจากสลิป (สตางค์) เพื่อกัน client ปลอมยอด
-		p.Amount = ok.Data.Amount.Amount
-
-		// - ถ้ายอดตรง (หรือไม่ได้บังคับตรวจ) ให้ถือว่าชำระสำเร็จ -> set PaidAt
+		p.Amount = slipSatang
 		if matched {
 			now := time.Now()
 			p.PaidAt = &now
-            log.Printf("[VERIFY] set PaidAt=%s", now.Format(time.RFC3339))
-
-			// (ออปชัน) ตั้งสถานะเป็น PAID ถ้าคุณมีตาราง lookup และ seed ไว้
 			if err := ctl.DB.Where("status_name = ?", "Paid").First(&paidStatus).Error; err == nil {
 				p.PaymentStatusID = paidStatus.ID
-			} else {
-				log.Printf("[VERIFY] PAID status not found: %v", err)
 			}
 		}
+
+        p.TransRef = ok.Data.TransRef
 
 		if err := ctl.DB.Save(&p).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "db_save_payment_error"})
 			return
 		}
 
-		// 4) ตอบกลับ (แนบ paymentId ให้ frontend ใช้)
 		c.JSON(http.StatusOK, gin.H{
 			"success":        true,
 			"paymentId":      p.ID,
 			"matchedAmount":  matched,
-			"expectedSatang": req.AmountSatang,
+			"expectedSatang": req.Amount,
+			"expectedBaht":   float64(req.Amount) / 100.0,
 			"slipData": gin.H{
-				"amountSatang": ok.Data.Amount.Amount, // จากสลิป
+				"amountSatang": slipSatang,
+				"amountBaht":   rawBaht,
 				"date":         ok.Data.Date,
 				"transRef":     ok.Data.TransRef,
 				"sender":       ok.Data.Sender,
@@ -390,26 +397,28 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		return
 	}
 
-	// ❌ non-200 : อ่าน error รายละเอียด
 	var er easySlipErrResp
 	if err := json.NewDecoder(resp.Body).Decode(&er); err != nil {
 		c.JSON(resp.StatusCode, gin.H{"error": "easyslip_error"})
 		return
 	}
-
 	if er.Message == "duplicate_slip" && er.Data != nil {
+		dupBaht := er.Data.Amount.Amount
+		dupSatang := int64(math.Round(dupBaht * 100))
 		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "duplicate_slip",
+			"success":        false,
+			"error":          "duplicate_slip",
+			"expectedSatang": req.Amount,
+			"expectedBaht":   float64(req.Amount) / 100.0,
 			"slipData": gin.H{
-				"amountSatang": er.Data.Amount.Amount,
+				"amountSatang": dupSatang,
+				"amountBaht":   dupBaht,
 				"date":         er.Data.Date,
 				"transRef":     er.Data.TransRef,
 			},
 		})
 		return
 	}
-
 	c.JSON(resp.StatusCode, gin.H{
 		"success": false,
 		"error":   er.Message, // invalid_image / unauthorized / quota_exceeded / ...
