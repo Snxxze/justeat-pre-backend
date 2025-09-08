@@ -43,3 +43,12 @@ func (r *RestaurantRepository) FindByID(id uint) (*entity.Restaurant, error) {
 func (r *RestaurantRepository) Update(rest *entity.Restaurant) error {
 	return r.DB.Save(rest).Error
 }
+
+// เช็คความเป็นเจ้าของร้าน + ดึงออเดอร์ระดับร้าน
+func (r *RestaurantRepository) IsOwnedBy(restID, userID uint) (bool, error) {
+	var cnt int64
+	err := r.DB.Model(&entity.Restaurant{}).
+		Where("id = ? AND user_id = ?", restID, userID).
+		Count(&cnt).Error
+	return cnt > 0, err
+}

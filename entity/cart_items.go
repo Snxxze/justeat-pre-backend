@@ -10,7 +10,7 @@ type CartItem struct {
 	Cart   Cart `json:"-"`
 
 	MenuID uint `json:"menuId"`
-	Menu   Menu `json:"-"`
+	Menu   *Menu `json:"menu" gorm:"foreignKey:MenuID;references:ID"`
 
 	Qty       int   `json:"qty"`
 	UnitPrice int64 `json:"unitPrice"`

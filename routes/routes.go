@@ -13,11 +13,57 @@ import (
 
 func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 
-	// ---------- Auth ----------
+	// ------------------------------------------------------------
+	// Repositories
+	// ------------------------------------------------------------
 	userRepo := repository.NewUserRepository(db)
-	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
-	authController := controllers.NewAuthController(authService)
+	restRepo := repository.NewRestaurantRepository(db)
+	menuRepo := repository.NewMenuRepository(db)
+	menuOptRepo := repository.NewMenuOptionRepository(db)
+	optRepo := repository.NewOptionRepository(db)
+	reportRepo := repository.NewReportRepository(db)
+	rAppRepo := repository.NewRestaurantApplicationRepository(db)
+	chatRepo := repository.NewChatRepository(db)
+	cartRepo := repository.NewCartRepository(db)
+	orderRepo := repository.NewOrderRepository(db)
 
+	// ------------------------------------------------------------
+	// Services
+	// ------------------------------------------------------------
+	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
+	restService := services.NewRestaurantService(restRepo)
+	menuService := services.NewMenuService(menuRepo)
+	menuOptService := services.NewMenuOptionService(menuOptRepo)
+	optService := services.NewOptionService(optRepo)
+	reportService := services.NewReportService(reportRepo)
+	rAppService := services.NewRestaurantApplicationService(rAppRepo)
+	chatService := services.NewChatService(chatRepo)
+
+	// Order/Cart (ตามเดิม)
+	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
+	cartSvc := services.NewCartService(db, cartRepo, orderRepo)
+
+	// ------------------------------------------------------------
+	// Controllers
+	// ------------------------------------------------------------
+	authController := controllers.NewAuthController(authService)
+	restController := controllers.NewRestaurantController(restService)
+	menuController := controllers.NewMenuController(menuService)
+	menuOptController := controllers.NewMenuOptionController(menuOptService)
+	optController := controllers.NewOptionController(optService)
+	reportController := controllers.NewReportController(reportService)
+	rAppController := controllers.NewRestaurantApplicationController(rAppService)
+	chatController := controllers.NewChatController(chatService)
+
+	orderCtl := controllers.NewOrderController(orderSvc)
+	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)
+	cartCtl := controllers.NewCartController(cartSvc)
+
+	// ------------------------------------------------------------
+	// Routes
+	// ------------------------------------------------------------
+
+	// ---------- Auth ----------
 	authGroup := r.Group("/auth")
 	{
 		// Public route
@@ -37,37 +83,15 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	}
 
 	// ---------- Reports ----------
-	reportRepo := repository.NewReportRepository(db)
-	reportService := services.NewReportService(reportRepo)
-	reportController := controllers.NewReportController(reportService)
-
 	reportsGroup := r.Group("/reports")
 	reportsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		reportsGroup.POST("", reportController.CreateReport)   // Create Report
-		reportsGroup.GET("", reportController.ListReports)     // Get All Reports ของ user
-		reportsGroup.GET("/:id", reportController.GetReportByID) // Get Report by ID
+		reportsGroup.POST("", reportController.CreateReport)        // Create Report
+		reportsGroup.GET("", reportController.ListReports)          // Get All Reports ของ user
+		reportsGroup.GET("/:id", reportController.GetReportByID)    // Get Report by ID
 	}
 
 	// ---------- Restaurants ----------
-	restRepo := repository.NewRestaurantRepository(db)
-	restService := services.NewRestaurantService(restRepo)
-	restController := controllers.NewRestaurantController(restService)
-
-	menuRepo := repository.NewMenuRepository(db)
-	menuService := services.NewMenuService(menuRepo)
-	menuController := controllers.NewMenuController(menuService)
-
-	// ---------- Menu Options ----------
-	menuOptRepo := repository.NewMenuOptionRepository(db)
-	menuOptService := services.NewMenuOptionService(menuOptRepo)
-	menuOptController := controllers.NewMenuOptionController(menuOptService)
-
-	// ---------- Options ----------
-	optRepo := repository.NewOptionRepository(db)
-	optService := services.NewOptionService(optRepo)
-	optController := controllers.NewOptionController(optService)
-
 	// Public
 	r.GET("/restaurants", restController.List)
 	r.GET("/restaurants/:id", restController.Get)
@@ -77,24 +101,26 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	r.GET("/menus/:id", menuController.Get)
 	// Public: ลูกค้าดู options ของเมนูได้
 	r.GET("/menus/:id/options", menuOptController.ListByMenu)
-	
+
 	// ลูกค้า: ดู option ได้ (public)
 	r.GET("/options", optController.List)
 	r.GET("/options/:id", optController.Get)
 
-	// Owner
+	// ---------- Owner ----------
 	ownerGroup := r.Group("/owner")
 	ownerGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
+		ownerGroup.GET("/restaurants/:id/orders", ownerOrderCtl.List)
+		ownerGroup.GET("/restaurants/:id/orders/:orderId", ownerOrderCtl.Detail)
 		ownerGroup.PATCH("/restaurants/:id", restController.Update)
 		ownerGroup.POST("/restaurants/:id/menus", menuController.Create)
-    ownerGroup.PATCH("/menus/:id", menuController.Update)
-    ownerGroup.DELETE("/menus/:id", menuController.Delete)
+		ownerGroup.PATCH("/menus/:id", menuController.Update)
+		ownerGroup.DELETE("/menus/:id", menuController.Delete)
 
 		ownerGroup.PATCH("/menus/:id/status", menuController.UpdateStatus)
 
 		// Option
-    ownerGroup.POST("/options", optController.Create)
+		ownerGroup.POST("/options", optController.Create)
 		ownerGroup.PATCH("/options/:id", optController.Update)
 		ownerGroup.DELETE("/options/:id", optController.Delete)
 
@@ -103,39 +129,24 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	}
 
 	// ---------- Restaurant Applications ----------
-	rAppRepo := repository.NewRestaurantApplicationRepository(db)
-	rAppService := services.NewRestaurantApplicationService(rAppRepo)
-	rAppController := controllers.NewRestaurantApplicationController(rAppService)
-
 	appsGroup := r.Group("/partner/restaurant-applications")
 	appsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		appsGroup.POST("", rAppController.Apply)              // ยื่นสมัคร
-		appsGroup.GET("", rAppController.List)                // แอดมินดูรายการ
-		appsGroup.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
-		appsGroup.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
+		appsGroup.POST("", rAppController.Apply)                 // ยื่นสมัคร
+		appsGroup.GET("", rAppController.List)                   // แอดมินดูรายการ
+		appsGroup.PATCH("/:id/approve", rAppController.Approve)  // อนุมัติ
+		appsGroup.PATCH("/:id/reject", rAppController.Reject)    // ปฏิเสธ
 	}
 
-	chatRepo := repository.NewChatRepository(db)
-	chatService := services.NewChatService(chatRepo)
-	chatController := controllers.NewChatController(chatService)
-
+	// ---------- Chat ----------
 	chatGroup := r.Group("/chatrooms", middlewares.AuthMiddleware(cfg.JWTSecret))
- 	{
-    chatGroup.GET("", chatController.ListRooms)
-    chatGroup.GET("/:id/messages", chatController.ListMessages)
-    chatGroup.POST("/:id/messages", chatController.SendMessage)
+	{
+		chatGroup.GET("", chatController.ListRooms)
+		chatGroup.GET("/:id/messages", chatController.ListMessages)
+		chatGroup.POST("/:id/messages", chatController.SendMessage)
 	}
 
-	cartRepo  := repository.NewCartRepository(db)
-	orderRepo := repository.NewOrderRepository(db)
-
-	orderSvc  := services.NewOrderService(db, orderRepo, cartRepo)
-	orderCtl  := controllers.NewOrderController(orderSvc)
-
-	cartSvc   := services.NewCartService(db, cartRepo, orderRepo)
-	cartCtl   := controllers.NewCartController(cartSvc)
-
+	// ---------- Cart / Orders (ลูกค้า) ----------
 	authOrder := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
 		authOrder.POST("/orders", orderCtl.Create)

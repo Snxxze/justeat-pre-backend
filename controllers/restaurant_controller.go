@@ -78,21 +78,68 @@ func (ctl *RestaurantController) Get(c *gin.Context) {
 
 // ====== Owner: อัปเดตร้านของตัวเอง ======
 func (ctl *RestaurantController) Update(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	var req entity.Restaurant
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+  id, err := strconv.Atoi(c.Param("id"))
+  if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"}); return }
 
-	req.ID = uint(id)
-	if err := ctl.Service.Update(&req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+  // ⬇️ ดึง userID จาก middleware (ปรับตามที่คุณเก็บใน context)
+  uidAny, ok := c.Get("userId")
+  if !ok { c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"}); return }
+  userID := uidAny.(uint)
 
-	c.JSON(http.StatusOK, gin.H{"message": "restaurant updated"})
+  // เช็คว่า restaurant นี้เป็นของ userID จริง
+  var count int64
+  if err := ctl.Service.Repo.DB.Model(&entity.Restaurant{}).
+    Where("id = ? AND user_id = ?", id, userID).
+    Count(&count).Error; err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
+  if count == 0 {
+    c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+    return
+  }
+
+  // ====== bind + build updates เหมือนเดิม ======
+  var in struct {
+    Name                 *string `json:"name"`
+    Address              *string `json:"address"`
+    Description          *string `json:"description"`
+    PictureBase64        *string `json:"pictureBase64"`
+    OpeningTime          *string `json:"openingTime"`
+    ClosingTime          *string `json:"closingTime"`
+    RestaurantCategoryID *uint   `json:"restaurantCategoryId"`
+    RestaurantStatusID   *uint   `json:"restaurantStatusId"`
+  }
+  if err := c.ShouldBindJSON(&in); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+  }
+
+  updates := map[string]interface{}{}
+  if in.Name != nil            { updates["name"] = *in.Name }
+  if in.Address != nil         { updates["address"] = *in.Address }
+  if in.Description != nil     { updates["description"] = *in.Description }
+  if in.PictureBase64 != nil   { updates["picture_base64"] = *in.PictureBase64 }
+  if in.OpeningTime != nil     { updates["opening_time"] = *in.OpeningTime }
+  if in.ClosingTime != nil     { updates["closing_time"] = *in.ClosingTime }
+  if in.RestaurantCategoryID != nil { updates["restaurant_category_id"] = *in.RestaurantCategoryID }
+  if in.RestaurantStatusID != nil   { updates["restaurant_status_id"] = *in.RestaurantStatusID }
+
+  if len(updates) == 0 {
+    c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+    return
+  }
+
+  if err := ctl.Service.Repo.DB.
+    Model(&entity.Restaurant{}).
+    Where("id = ? AND user_id = ?", id, userID).
+    Updates(updates).Error; err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
+
+  c.JSON(http.StatusOK, gin.H{"message": "restaurant updated"})
 }
+
 
 // ====== Helper ======
 func mapToRestaurantResponse(r *entity.Restaurant) RestaurantResponse {

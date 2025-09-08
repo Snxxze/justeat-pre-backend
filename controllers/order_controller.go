@@ -108,17 +108,23 @@ func (h *OrderController) CheckoutFromCart(c *gin.Context) {
 	uid, ok := v.(uint)
 	if !ok || uid == 0 { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
 
-	res, err := h.Svc.CreateFromCart(uid)
+	var req services.CheckoutFromCartReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// FE จะส่ง address เสมอ ถ้าไม่มาก็ invalid
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	res, err := h.Svc.CreateFromCart(uid, &req)
 	if err != nil {
 		switch err.Error() {
 		case "cart is empty", "cart has no restaurant":
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
 		default:
-			// ถ้าอยากละเอียดกว่านี้ ค่อยแตกข้อความ/ชนิดเพิ่มได้
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
 		}
+		return
 	}
 	c.JSON(http.StatusCreated, res)
 }
+

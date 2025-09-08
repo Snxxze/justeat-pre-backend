@@ -2,6 +2,7 @@ package repository
 
 import (
 	"backend/entity"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -104,4 +105,106 @@ func (r *OrderRepository) GetOrderItems(orderID uint) ([]entity.OrderItem, error
 		Where("order_id = ?", orderID).
 		Find(&items).Error
 	return items, err
+}
+
+func (r *OrderRepository) GetPaymentMethodIDFromKey(key string) (uint, error) {
+	if key == "" { return 0, nil }
+
+	k := strings.ToLower(strings.TrimSpace(key))
+	// map key จาก FE -> MethodName ใน DB
+	var methodName string
+	switch k {
+	case "promptpay":
+		methodName = "PromptPay"
+	case "cod", "cash_on_delivery", "cash-on-delivery", "cash on delivery":
+		methodName = "Cash on Delivery"
+	default:
+		// เผื่อกรณีส่งเป็นชื่อมาเลย
+		methodName = key
+	}
+
+	type row struct{ ID uint }
+	var rrow row
+	if err := r.DB.Model(&entity.PaymentMethod{}).
+		Select("id").
+		Where("method_name = ?", methodName).
+		Limit(1).
+		Scan(&rrow).Error; err != nil {
+		return 0, err
+	}
+	return rrow.ID, nil
+}
+
+func (r *OrderRepository) CreatePayment(tx *gorm.DB, p *entity.Payment) error {
+	return tx.Create(p).Error
+}
+
+type OwnerOrderSummary struct {
+	ID            uint      `json:"id"`
+	UserID        uint      `json:"userId"`
+	CustomerName  string    `json:"customerName"`
+	Total         int64     `json:"total"`
+	OrderStatusID uint      `json:"orderStatusId"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+func (r *OrderRepository) ListOrdersForRestaurant(restID uint, statusID *uint, page, limit int) ([]OwnerOrderSummary, int64, error) {
+	if page <= 0 { page = 1 }
+	if limit <= 0 || limit > 200 { limit = 20 }
+	offset := (page - 1) * limit
+
+	// นับทั้งหมด (ตามเงื่อนไขเดียวกัน)
+	var total int64
+	dbCount := r.DB.Table("orders AS o").Where("o.restaurant_id = ?", restID)
+	if statusID != nil && *statusID != 0 {
+		dbCount = dbCount.Where("o.order_status_id = ?", *statusID)
+	}
+	if err := dbCount.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// ดึงรายการ + join users เพื่อเอาชื่อลูกค้า
+	var rows []struct {
+		ID            uint
+		UserID        uint
+		Total         int64
+		OrderStatusID uint
+		CreatedAt     time.Time
+		FirstName     string
+		LastName      string
+	}
+	db := r.DB.Table("orders AS o").
+		Select("o.id, o.user_id, o.total, o.order_status_id, o.created_at, u.first_name, u.last_name").
+		Joins("JOIN users u ON u.id = o.user_id").
+		Where("o.restaurant_id = ?", restID)
+	if statusID != nil && *statusID != 0 {
+		db = db.Where("o.order_status_id = ?", *statusID)
+	}
+	if err := db.Order("o.id DESC").Limit(limit).Offset(offset).Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	out := make([]OwnerOrderSummary, 0, len(rows))
+	for _, r := range rows {
+		name := strings.TrimSpace(strings.TrimSpace(r.FirstName) + " " + strings.TrimSpace(r.LastName))
+		out = append(out, OwnerOrderSummary{
+			ID:            r.ID,
+			UserID:        r.UserID,
+			CustomerName:  name,
+			Total:         r.Total,
+			OrderStatusID: r.OrderStatusID,
+			CreatedAt:     r.CreatedAt,
+		})
+	}
+	return out, total, nil
+}
+
+func (r *OrderRepository) GetOrderForRestaurant(restID, orderID uint) (*entity.Order, error) {
+	var o entity.Order
+	if err := r.DB.
+		Where("id = ? AND restaurant_id = ?", orderID, restID).
+		First(&o).Error; err != nil {
+		return nil, err
+	}
+	return &o, nil
 }

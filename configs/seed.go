@@ -153,7 +153,6 @@ func SeedLookups() error {
 
 	// Order Status
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Pending"})
-	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Paid"})
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Delivering"})
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Completed"})
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Cancelled"})
