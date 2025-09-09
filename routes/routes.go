@@ -13,31 +13,13 @@ import (
 	"log"
 )
 
-func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
+func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	log.Printf("[ROUTES] EasySlip len=%d", len(cfg.EasySlipAPIKey))
 	//===== Auth =====
 	// repo -> serviec -> controller
 	userRepo := repository.NewUserRepository(db)
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
 	authController := controllers.NewAuthController(authService)
-
-	// Payment controller
-    paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
-
-
-	//  เพิ่ม API Group สำหรับ public endpoints
-    apiGroup := r.Group("/api")
-    {
-        // Payment endpoints (public)
-        paymentsGroup := apiGroup.Group("/payments")
-        {
-            paymentsGroup.POST("/upload-slip", paymentController.UploadSlip)
-			paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
-            // เพิ่ม endpoints อื่นๆ ตามต้องการ
-            // paymentsGroup.GET("/status/:paymentId", paymentController.GetPaymentStatus)
-            // paymentsGroup.POST("/verify/:paymentId", paymentController.VerifyPayment)
-        }
-    }
 
 	// Group: Auth
 	authGroup := r.Group("/auth")
@@ -54,8 +36,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 			authGroup.POST("/me/avatar", authController.UploadAvatar)
 			authGroup.GET("/me/avatar", authController.GetAvatar)
 
-			// payment
-			authGroup.POST("/me/payment", paymentController.UploadSlip)
 		}
 	}
 
@@ -75,5 +55,18 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg * configs.Config) {
 
 		// ถ้าอยากดึงเฉพาะอันเดียว
 		reports.GET("/:id", reportController.GetReportByID)
+
+		// Payment controller
+		paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
+		//  เพิ่ม API Group
+		apiGroup := r.Group("/api")
+		{
+			// Payment endpoints
+			paymentsGroup := apiGroup.Group("/payments")
+			paymentsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+			{
+				paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
+			}
+		}
 	}
 }
