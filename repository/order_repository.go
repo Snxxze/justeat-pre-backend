@@ -206,3 +206,14 @@ func (r *OrderRepository) UpdateStatusGuard(tx *gorm.DB, orderID uint, fromID, t
 		Update("order_status_id", toID)
 	return res.RowsAffected, res.Error
 }
+
+// ปลอดภัยด้วย guard สถานะปัจจุบัน เพื่อลด race
+func (r *OrderRepository) UpdateStatusFromTo(tx *gorm.DB, orderID, fromID, toID uint) (bool, error) {
+	res := tx.Model(&entity.Order{}).
+		Where("id = ? AND order_status_id = ?", orderID, fromID).
+		Update("order_status_id", toID)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}

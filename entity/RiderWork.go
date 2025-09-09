@@ -8,12 +8,11 @@ import (
 type RiderWork struct {
 	gorm.Model
 	WorkAt   *time.Time `json:"workAt,omitempty"`
-	FinishAt *time.Time `json:"finishAt,omitempty"`
+	FinishAt *time.Time `json:"finishAt,omitempty" gorm:"index:idx_order_finish;index:idx_rider_finish"`
 
-	OrderID uint  `json:"orderId"`
-	Order   Order `json:"-"` // preload เฉพาะตอน detail
+	OrderID uint  `json:"orderId" gorm:"index:idx_order_finish"`
+	Order   Order `json:"-"`
 
-	RiderID uint  `json:"riderId"`
-	Rider   Rider `json:"-"` // preload เฉพาะตอนต้องการดูข้อมูล rider
+	RiderID uint  `json:"riderId" gorm:"index:idx_rider_finish"`
+	Rider   Rider `json:"-"`
 }
-

@@ -24,6 +24,8 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	chatRepo := repository.NewChatRepository(db)
 	cartRepo := repository.NewCartRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
+	riderRepo := repository.NewRiderRepository(db)
+	riderWorkRepo := repository.NewRiderWorkRepository(db)
 
 	// ------------------------------------------------------------
 	// Services
@@ -35,9 +37,10 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	chatService := services.NewChatService(chatRepo)
 
-	// Order/Cart (ตามเดิม)
+	// Order/Cart
 	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
 	cartSvc := services.NewCartService(db, cartRepo, orderRepo)
+	riderSvc := services.NewRiderService(db, riderRepo, riderWorkRepo, orderRepo)
 
 	// ------------------------------------------------------------
 	// Controllers
@@ -53,6 +56,8 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)
 	cartCtl := controllers.NewCartController(cartSvc)
 
+	riderCtl := controllers.NewRiderController(riderSvc)
+
 	// ------------------------------------------------------------
 	// Routes
 	// ------------------------------------------------------------
@@ -60,7 +65,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// ---------- Auth ----------
 	authGroup := r.Group("/auth")
 	{
-		// Public route
+		// Public
 		authGroup.POST("/register", authController.Register)
 		authGroup.POST("/login", authController.Login)
 
@@ -80,9 +85,9 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportsGroup := r.Group("/reports")
 	reportsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		reportsGroup.POST("", reportController.CreateReport)        // Create Report
-		reportsGroup.GET("", reportController.ListReports)          // Get All Reports ของ user
-		reportsGroup.GET("/:id", reportController.GetReportByID)    // Get Report by ID
+		reportsGroup.POST("", reportController.CreateReport)     // Create Report
+		reportsGroup.GET("", reportController.ListReports)       // Get All Reports ของ user
+		reportsGroup.GET("/:id", reportController.GetReportByID) // Get Report by ID
 	}
 
 	// ---------- Restaurants ----------
@@ -101,26 +106,32 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		ownerGroup.GET("/restaurants/:id/orders", ownerOrderCtl.List)
 		ownerGroup.GET("/restaurants/:id/orders/:orderId", ownerOrderCtl.Detail)
 		ownerGroup.PATCH("/restaurants/:id", restController.Update)
+
 		ownerGroup.POST("/restaurants/:id/menus", menuController.Create)
 		ownerGroup.PATCH("/menus/:id", menuController.Update)
 		ownerGroup.DELETE("/menus/:id", menuController.Delete)
 		ownerGroup.PATCH("/menus/:id/status", menuController.UpdateStatus)
 
-		ownerGroup.POST("/orders/:orderId/accept",   ownerOrderCtl.Accept)   // Pending -> Preparing
-    ownerGroup.POST("/orders/:orderId/handoff",  ownerOrderCtl.Handoff)  // Preparing -> Delivering
-    ownerGroup.POST("/orders/:orderId/complete", ownerOrderCtl.Complete) // Delivering -> Completed
-    ownerGroup.POST("/orders/:orderId/cancel",   ownerOrderCtl.Cancel)   // Pending -> Cancelled
+		ownerGroup.POST("/orders/:orderId/accept", ownerOrderCtl.Accept) // Pending -> Preparing
+		ownerGroup.POST("/orders/:orderId/cancel", ownerOrderCtl.Cancel) // Pending -> Cancelled
+	}
 
+	// ---------- Rider ----------
+	riderGroup := r.Group("/rider", middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		riderGroup.PATCH("/me/availability", riderCtl.SetAvailability) // ONLINE / OFFLINE
+		riderGroup.POST("/works/:orderId/accept", riderCtl.Accept)     // Preparing -> Delivering (assign งาน)
+		riderGroup.POST("/works/:orderId/complete", riderCtl.Complete) // Delivering -> Completed
 	}
 
 	// ---------- Restaurant Applications ----------
 	appsGroup := r.Group("/partner/restaurant-applications")
 	appsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		appsGroup.POST("", rAppController.Apply)                 // ยื่นสมัคร
-		appsGroup.GET("", rAppController.List)                   // แอดมินดูรายการ
-		appsGroup.PATCH("/:id/approve", rAppController.Approve)  // อนุมัติ
-		appsGroup.PATCH("/:id/reject", rAppController.Reject)    // ปฏิเสธ
+		appsGroup.POST("", rAppController.Apply)                // ยื่นสมัคร
+		appsGroup.GET("", rAppController.List)                  // แอดมินดูรายการ
+		appsGroup.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
+		appsGroup.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
 	}
 
 	// ---------- Chat ----------

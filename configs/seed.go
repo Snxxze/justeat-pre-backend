@@ -127,9 +127,10 @@ func SeedLookups() error {
 	db.FirstOrCreate(&entity.PaymentStatus{}, entity.PaymentStatus{StatusName: "Failed"})
 
 	// Rider
-	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "Available"})
-	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "Delivering"})
-	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "Offline"})
+	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "OFFLINE"})
+	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "ONLINE"})
+	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "ASSIGNED"})
+	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "COMPLETED"})
 
 	// Message Type
 	db.FirstOrCreate(&entity.MessageType{}, entity.MessageType{TypeName: "Text"})

@@ -1,95 +1,70 @@
 package controllers
 
 import (
-	"errors"
-	"time"
+	"backend/services"
+	"net/http"
 	"strconv"
-
-	"backend/entity"
-	"backend/pkg/resp"
-	"backend/utils"
+	"strings"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
-type RiderController struct{ DB *gorm.DB }
-func NewRiderController(db *gorm.DB) *RiderController { return &RiderController{DB: db} }
+type RiderController struct{ Svc *services.RiderService }
 
-func (rc *RiderController) riderByUser(c *gin.Context) (*entity.Rider, bool) {
-	uid := utils.CurrentUserID(c)
-	var r entity.Rider
-	if err := rc.DB.Select("id, user_id, vehicle_plate, rider_status_id").
-		Where("user_id = ?", uid).First(&r).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			resp.BadRequest(c, "rider profile not found"); return nil, false
+func NewRiderController(s *services.RiderService) *RiderController { return &RiderController{Svc: s} }
+
+func (h *RiderController) SetAvailability(c *gin.Context) {
+	uid := c.GetUint("userId")
+	var req struct{ Status string `json:"status" binding:"required"` }
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+	}
+	switch strings.ToUpper(strings.TrimSpace(req.Status)) {
+	case "ONLINE":
+		if err := h.Svc.SetAvailability(uid, true); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()}); return
 		}
-		resp.ServerError(c, err); return nil, false
+	case "OFFLINE":
+		if err := h.Svc.SetAvailability(uid, false); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()}); return
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"}); return
 	}
-	return &r, true
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-func (rc *RiderController) Dashboard(c *gin.Context) {
-	r, ok := rc.riderByUser(c); if !ok { return }
-	var active int64
-	rc.DB.Model(&entity.RiderWork{}).Where("rider_id = ? AND finish_at IS NULL", r.ID).Count(&active)
-	resp.OK(c, gin.H{"activeJobs": active, "riderStatusId": r.RiderStatusID})
+func (h *RiderController) Accept(c *gin.Context) {
+	uid := c.GetUint("userId")
+	oid64, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
+	if oid64 == 0 { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"}); return }
+
+	if err := h.Svc.AcceptWork(uid, uint(oid64)); err != nil {
+		code := http.StatusBadRequest
+		msg := err.Error()
+		if strings.Contains(msg, "not ONLINE") || strings.Contains(msg, "active work") ||
+			strings.Contains(msg, "already assigned") || strings.Contains(msg, "not in preparing") {
+			code = http.StatusConflict
+		}
+		c.JSON(code, gin.H{"error": msg}); return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-func (rc *RiderController) JobList(c *gin.Context) {
-	r, ok := rc.riderByUser(c); if !ok { return }
-	type row struct {
-		ID uint `json:"id"`
-		OrderID uint `json:"orderId"`
-		RestaurantID uint `json:"restaurantId"`
-		WorkAt *time.Time `json:"workAt"`
-	}
-	var jobs []row
-	if err := rc.DB.Model(&entity.RiderWork{}).
-		Select("id, order_id, rider_id, work_at").
-		Where("rider_id = ? AND finish_at IS NULL", r.ID).
-		Order("id DESC").Find(&jobs).Error; err != nil {
-		resp.ServerError(c, err); return
-	}
-	resp.OK(c, gin.H{"items": jobs})
-}
+func (h *RiderController) Complete(c *gin.Context) {
+	uid := c.GetUint("userId")
+	oid64, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
+	if oid64 == 0 { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"}); return }
 
-func (rc *RiderController) Histories(c *gin.Context) {
-	r, ok := rc.riderByUser(c); if !ok { return }
-	type row struct {
-		ID uint `json:"id"`
-		OrderID uint `json:"orderId"`
-		FinishAt *time.Time `json:"finishAt"`
+	if err := h.Svc.CompleteWork(uid, uint(oid64)); err != nil {
+		code := http.StatusBadRequest
+		msg := err.Error()
+		if strings.Contains(msg, "not in delivering") ||
+			strings.Contains(msg, "not on an assigned work") ||
+			strings.Contains(msg, "no active work") {
+			code = http.StatusConflict
+		}
+		c.JSON(code, gin.H{"error": msg}); return
 	}
-	var items []row
-	if err := rc.DB.Model(&entity.RiderWork{}).
-		Select("id, order_id, finish_at").
-		Where("rider_id = ? AND finish_at IS NOT NULL", r.ID).
-		Order("id DESC").Limit(100).Find(&items).Error; err != nil {
-		resp.ServerError(c, err); return
-	}
-	resp.OK(c, gin.H{"items": items})
-}
-
-func (rc *RiderController) Profile(c *gin.Context) {
-	r, ok := rc.riderByUser(c); if !ok { return }
-	resp.OK(c, gin.H{"id": r.ID, "vehiclePlate": r.VehiclePlate, "riderStatusId": r.RiderStatusID})
-}
-
-func (rc *RiderController) FinishJob(c *gin.Context) {
-	r, ok := rc.riderByUser(c); if !ok { return }
-	id, _ := strconv.Atoi(c.Param("id"))
-	var w entity.RiderWork
-	if err := rc.DB.Where("id = ? AND rider_id = ?", id, r.ID).First(&w).Error; err != nil {
-		resp.BadRequest(c, "job not found"); return
-	}
-	now := time.Now()
-	tx := rc.DB.Begin()
-	if err := tx.Model(&w).Update("finish_at", &now).Error; err != nil { tx.Rollback(); resp.ServerError(c, err); return }
-	// อัปเดตสถานะคำสั่งซื้อเป็น Completed (4) (ปรับตาม seed ของคุณ)
-	if err := tx.Model(&entity.Order{}).Where("id = ?", w.OrderID).Update("order_status_id", 4).Error; err != nil {
-		tx.Rollback(); resp.ServerError(c, err); return
-	}
-	if err := tx.Commit().Error; err != nil { resp.ServerError(c, err); return }
-	resp.OK(c, gin.H{"jobId": w.ID, "finished": true})
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
