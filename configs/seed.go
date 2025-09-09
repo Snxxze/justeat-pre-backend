@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"backend/entity"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -300,8 +301,6 @@ func SeedLookups() error {
 	createMenu(boba, "ช็อกโกแลตเย็น", "เข้มเต็มแก้ว", 59, mtDrink)
 	createMenu(boba, "ผลไม้รวมโซดา", "สดชื่นซาบซ่า", 49, mtDrink)
 
-	log.Println("✅ Lookup tables seeded")
+	log.Println("Lookup tables seeded")
 	return nil
 }
-
-

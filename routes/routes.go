@@ -9,12 +9,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+
+	"log"
 )
 
 func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
+	log.Printf("[ROUTES] EasySlip len=%d", len(cfg.EasySlipAPIKey))
 
 	// ------------------------------------------------------------
-	// Repositories
+	//Repositories
 	// ------------------------------------------------------------
 	userRepo := repository.NewUserRepository(db)
 	restRepo := repository.NewRestaurantRepository(db)
@@ -182,15 +185,17 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		authOrder.POST("/orders/checkout-from-cart", orderCtl.CheckoutFromCart)
 	}
 
-	// ===== Payments (เก็บสลิป Base64) =====
-	paymentCtl := controllers.NewPaymentController(db)
-
-	payments := r.Group("/payments")
-	payments.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
-	{
-		payments.POST("/upload-slip", paymentCtl.UploadSlip)
-		// (ทางเลือก) แสดงสลิปกลับมาให้แอดมินดู
-		// payments.GET("/:id/slip", paymentCtl.GetSlip)
-	}
+	// Payment controller
+		paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
+		//  เพิ่ม API Group
+		apiGroup := r.Group("/api")
+		{
+			// Payment endpoints
+			paymentsGroup := apiGroup.Group("/payments")
+			paymentsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+			{
+				paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
+			}
+		}
 
 }

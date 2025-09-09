@@ -1,11 +1,10 @@
 package configs
 
 import (
+	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"time"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -13,19 +12,23 @@ type Config struct {
 	DBSource  string
 	Port      string
 	JWTSecret string
-	JWTTTL		time.Duration
-	EasySlipAPIKey string `mapstructure:"EASYSLIP_API_KEY"`
+	JWTTTL    time.Duration
+	EasySlipAPIKey string
 }
 
 func LoadConfig() *Config {
-	_ = godotenv.Load() // ถ้าไม่มี .env ก็ข้าม
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 
 	return &Config{
-		DBDriver:  getEnv("DB_DRIVER", "sqlite"),
-		DBSource:  getEnv("DB_SOURCE", "test.db"),
-		Port:      getEnv("PORT", "8000"),
-		JWTSecret: getEnv("JWT_SECRET", "changeme"),
-		JWTTTL: 	 time.Duration(24) * time.Hour,	
+		DBDriver:       getEnv("DB_DRIVER", "sqlite"),
+		DBSource:       getEnv("DB_SOURCE", "test.db"),
+		Port:           getEnv("PORT", "8000"),
+		JWTSecret:      getEnv("JWT_SECRET", "changeme"),
+		JWTTTL:         time.Duration(24) * time.Hour,
+		EasySlipAPIKey: os.Getenv("EASYSLIP_API_KEY"),
 	}
 }
 
