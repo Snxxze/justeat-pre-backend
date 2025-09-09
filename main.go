@@ -5,7 +5,6 @@ import (
 	"log"
 
 	"backend/configs"
-	"backend/entity"
 	"backend/middlewares"
 	"backend/routes"
 
@@ -18,11 +17,6 @@ func main() {
 	// DB
 	configs.ConnectionDB()
 	db := configs.DB()
-
-	// join table (many2many Menu<->Option)
-	if err := db.SetupJoinTable(&entity.Menu{}, "Options", &entity.MenuOption{}); err != nil {
-		log.Fatalf("setup join table failed: %v", err)
-	}
 
 	// migrate
 	configs.SetupDatabase()

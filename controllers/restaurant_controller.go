@@ -1,355 +1,164 @@
+// controllers/restaurant_controller.go
 package controllers
 
 import (
-	"crypto/sha256"
-	"fmt"
-	"io"
-	"net/http"
-
-	"errors"
-	"strconv"
-	"time"
-
 	"backend/entity"
-	"backend/pkg/resp"
-	"backend/utils"
+	"backend/services"
+	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
-type RestaurantController struct{ 
-	DB *gorm.DB 
+type RestaurantController struct {
+	Service *services.RestaurantService
 }
 
-func NewRestaurantController(db *gorm.DB) *RestaurantController { 
-	return &RestaurantController{DB: db} 
+func NewRestaurantController(s *services.RestaurantService) *RestaurantController {
+	return &RestaurantController{Service: s}
 }
 
-// ===== User side =====
+// ====== Response DTO ======
+type RestaurantResponse struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Address     string `json:"address"`
+	Description string `json:"description"`
+	Logo        string `json:"logo"`
+	OpeningTime string `json:"openingTime"`
+	ClosingTime string `json:"closingTime"`
 
-// GET /restaurants?q=&categoryId=&statusId=&page=&limit=
-func (rc *RestaurantController) List(c *gin.Context) {
-	q := c.Query("q")
-	categoryID, _ := strconv.Atoi(c.DefaultQuery("categoryId", "0"))
-	statusID, _ := strconv.Atoi(c.DefaultQuery("statusId", "0"))
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if page < 1 { page = 1 }
-	if limit <= 0 || limit > 100 { limit = 20 }
-	offset := (page - 1) * limit
+	Category struct {
+		ID   uint   `json:"id"`
+		Name string `json:"name"`
+	} `json:"category"`
 
-	dbq := rc.DB.Model(&entity.Restaurant{})
-	if q != "" {
-		dbq = dbq.Where("name LIKE ? OR address LIKE ?", "%"+q+"%", "%"+q+"%")
-	}
-	if categoryID > 0 { dbq = dbq.Where("restaurant_category_id = ?", categoryID) }
-	if statusID > 0 { dbq = dbq.Where("restaurant_status_id = ?", statusID) }
+	Status struct {
+		ID   uint   `json:"id"`
+		Name string `json:"name"`
+	} `json:"status"`
 
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil { resp.ServerError(c, err); return }
-
-	var items []entity.Restaurant
-	if err := dbq.
-		Select("id, name, picture, restaurant_status_id").
-		Order("id DESC").Limit(limit).Offset(offset).
-		Find(&items).Error; err != nil {
-		resp.ServerError(c, err); return
-	}
-
-	resp.OK(c, gin.H{"items": items, "page": page, "limit": limit, "total": total})
+	Owner struct {
+		ID        uint   `json:"id"`
+		FirstName string `json:"firstName"`
+		LastName  string `json:"lastName"`
+		Email     string `json:"email"`
+	} `json:"owner"`
 }
 
-// GET /restaurants/:id
-func (rc *RestaurantController) Detail(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil { resp.BadRequest(c, "invalid id"); return }
-
-	var r entity.Restaurant
-	if err := rc.DB.Select("id, name, address, description, picture, restaurant_status_id").
-		First(&r, id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) { c.JSON(404, gin.H{"ok": false, "error": "not found"}); return }
-		resp.ServerError(c, err); return
+// ====== Public: ดูร้านทั้งหมด ======
+func (ctl *RestaurantController) List(c *gin.Context) {
+	rests, err := ctl.Service.List()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	// แนบเมนูแค่บางส่วน (status = Available)
-	var menus []entity.Menu
-	if err := rc.DB.Model(&entity.Menu{}).
-		Select("id, menu_name, price, picture, restaurant_id").
-		Where("restaurant_id = ? AND menu_status_id = ?", r.ID, 1).
-		Order("id DESC").Limit(20).
-		Find(&menus).Error; err != nil {
-		resp.ServerError(c, err); return
+	var resp []RestaurantResponse
+	for _, r := range rests {
+		item := mapToRestaurantResponse(&r)
+		resp = append(resp, item)
 	}
 
-	resp.OK(c, gin.H{
-		"id": r.ID, "name": r.Name, "address": r.Address, "description": r.Description,
-		"picture": r.Picture, "restaurantStatusId": r.RestaurantStatusID,
-		"menus": menus,
-	})
+	c.JSON(http.StatusOK, gin.H{"items": resp})
 }
 
-// ===== Partner /restaurant (owner/admin) =====
-
-// helper: ตรวจว่า user เป็นเจ้าของร้านนี้หรือ admin
-func (rc *RestaurantController) ensureOwnerOrAdmin(c *gin.Context, restaurantID uint) (*entity.Restaurant, bool) {
-	role := utils.CurrentRole(c)
-	userID := utils.CurrentUserID(c)
-
-	var r entity.Restaurant
-	if err := rc.DB.Select("id, user_id, name").First(&r, restaurantID).Error; err != nil {
-		resp.BadRequest(c, "restaurant not found"); return nil, false
+// ====== Public: ดูร้านเดี่ยว ======
+func (ctl *RestaurantController) Get(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	r, err := ctl.Service.Get(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "restaurant not found"})
+		return
 	}
-	if role != "admin" && r.UserID != userID {
-		resp.Forbidden(c, "not owner"); return nil, false
-	}
-	return &r, true
+
+	resp := mapToRestaurantResponse(r)
+	c.JSON(http.StatusOK, resp)
 }
 
-// GET /partner/restaurant/orders?restaurantId=&statusId=&page=&limit=
-func (rc *RestaurantController) Orders(c *gin.Context) {
-	restID64, _ := strconv.ParseUint(c.DefaultQuery("restaurantId", "0"), 10, 64)
-	if restID64 == 0 { resp.BadRequest(c, "restaurantId required"); return }
-	if _, ok := rc.ensureOwnerOrAdmin(c, uint(restID64)); !ok { return }
+// ====== Owner: อัปเดตร้านของตัวเอง ======
+func (ctl *RestaurantController) Update(c *gin.Context) {
+  id, err := strconv.Atoi(c.Param("id"))
+  if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"}); return }
 
-	statusID, _ := strconv.Atoi(c.DefaultQuery("statusId", "0"))
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if page < 1 { page = 1 }
-	if limit <= 0 || limit > 100 { limit = 20 }
-	offset := (page - 1) * limit
+  // ⬇️ ดึง userID จาก middleware (ปรับตามที่คุณเก็บใน context)
+  uidAny, ok := c.Get("userId")
+  if !ok { c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"}); return }
+  userID := uidAny.(uint)
 
-	dbq := rc.DB.Model(&entity.Order{}).Where("restaurant_id = ?", uint(restID64))
-	if statusID > 0 { dbq = dbq.Where("order_status_id = ?", statusID) }
+  // เช็คว่า restaurant นี้เป็นของ userID จริง
+  var count int64
+  if err := ctl.Service.Repo.DB.Model(&entity.Restaurant{}).
+    Where("id = ? AND user_id = ?", id, userID).
+    Count(&count).Error; err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
+  if count == 0 {
+    c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+    return
+  }
 
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil { resp.ServerError(c, err); return }
+  // ====== bind + build updates เหมือนเดิม ======
+  var in struct {
+    Name                 *string `json:"name"`
+    Address              *string `json:"address"`
+    Description          *string `json:"description"`
+    PictureBase64        *string `json:"pictureBase64"`
+    OpeningTime          *string `json:"openingTime"`
+    ClosingTime          *string `json:"closingTime"`
+    RestaurantCategoryID *uint   `json:"restaurantCategoryId"`
+    RestaurantStatusID   *uint   `json:"restaurantStatusId"`
+  }
+  if err := c.ShouldBindJSON(&in); err != nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+  }
 
-	type row struct {
-		ID uint `json:"id"`
-		Total int64 `json:"total"`
-		OrderStatusID uint `json:"orderStatusId"`
-		UserID uint `json:"userId"`
-		CreatedAt time.Time `json:"createdAt"`
-	}
-	var items []row
-	if err := dbq.Select("id, total, order_status_id, user_id, created_at").
-		Order("id DESC").Limit(limit).Offset(offset).
-		Find(&items).Error; err != nil {
-		resp.ServerError(c, err); return
-	}
-	resp.OK(c, gin.H{"items": items, "page": page, "limit": limit, "total": total})
+  updates := map[string]interface{}{}
+  if in.Name != nil            { updates["name"] = *in.Name }
+  if in.Address != nil         { updates["address"] = *in.Address }
+  if in.Description != nil     { updates["description"] = *in.Description }
+  if in.PictureBase64 != nil   { updates["picture_base64"] = *in.PictureBase64 }
+  if in.OpeningTime != nil     { updates["opening_time"] = *in.OpeningTime }
+  if in.ClosingTime != nil     { updates["closing_time"] = *in.ClosingTime }
+  if in.RestaurantCategoryID != nil { updates["restaurant_category_id"] = *in.RestaurantCategoryID }
+  if in.RestaurantStatusID != nil   { updates["restaurant_status_id"] = *in.RestaurantStatusID }
+
+  if len(updates) == 0 {
+    c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+    return
+  }
+
+  if err := ctl.Service.Repo.DB.
+    Model(&entity.Restaurant{}).
+    Where("id = ? AND user_id = ?", id, userID).
+    Updates(updates).Error; err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+    return
+  }
+
+  c.JSON(http.StatusOK, gin.H{"message": "restaurant updated"})
 }
 
-// GET /partner/restaurant/menu?restaurantId=&page=&limit=
-func (rc *RestaurantController) Menus(c *gin.Context) {
-	restID64, _ := strconv.ParseUint(c.DefaultQuery("restaurantId", "0"), 10, 64)
-	if restID64 == 0 { resp.BadRequest(c, "restaurantId required"); return }
-	if _, ok := rc.ensureOwnerOrAdmin(c, uint(restID64)); !ok { return }
 
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	if page < 1 { page = 1 }
-	if limit <= 0 || limit > 100 { limit = 50 }
-	offset := (page - 1) * limit
-
-	var total int64
-	if err := rc.DB.Model(&entity.Menu{}).
-		Where("restaurant_id = ?", uint(restID64)).
-		Count(&total).Error; err != nil { resp.ServerError(c, err); return }
-
-	var items []entity.Menu
-	if err := rc.DB.Model(&entity.Menu{}).
-		Select("id, menu_name, price, picture, menu_status_id, menu_type_id").
-		Where("restaurant_id = ?", uint(restID64)).
-		Order("id DESC").Limit(limit).Offset(offset).
-		Find(&items).Error; err != nil {
-		resp.ServerError(c, err); return
+// ====== Helper ======
+func mapToRestaurantResponse(r *entity.Restaurant) RestaurantResponse {
+	item := RestaurantResponse{
+		ID:          r.ID,
+		Name:        r.Name,
+		Address:     r.Address,
+		Description: r.Description,
+		Logo:        r.Picture,
+		OpeningTime: r.OpeningTime,
+		ClosingTime: r.ClosingTime,
 	}
-	resp.OK(c, gin.H{"items": items, "page": page, "limit": limit, "total": total})
-}
-
-type CreateMenuReq struct {
-	RestaurantID   uint   `json:"restaurantId" binding:"required"`
-	MenuName       string `json:"menuName" binding:"required"`
-	Detail         string `json:"detail"`
-	Price          int64  `json:"price" binding:"required"`
-	Picture        string `json:"picture"`
-	MenuTypeID     uint   `json:"menuTypeId" binding:"required"`
-	MenuStatusID   uint   `json:"menuStatusId" binding:"required"`
-}
-
-// POST /partner/restaurant/menu
-func (rc *RestaurantController) CreateMenu(c *gin.Context) {
-	var req CreateMenuReq
-	if err := c.ShouldBindJSON(&req); err != nil { resp.BadRequest(c, err.Error()); return }
-	if _, ok := rc.ensureOwnerOrAdmin(c, req.RestaurantID); !ok { return }
-
-	m := entity.Menu{
-		MenuName: req.MenuName, Detail: req.Detail, Price: req.Price, Picture: req.Picture,
-		MenuTypeID: req.MenuTypeID, MenuStatusID: req.MenuStatusID, RestaurantID: req.RestaurantID,
-	}
-	if err := rc.DB.Create(&m).Error; err != nil { resp.ServerError(c, err); return }
-	resp.Created(c, gin.H{"id": m.ID})
-}
-
-type UpdateMenuReq struct {
-	ID            uint    `json:"id" binding:"required"`
-	RestaurantID  uint    `json:"restaurantId" binding:"required"`
-	MenuName      *string `json:"menuName"`
-	Detail        *string `json:"detail"`
-	Price         *int64  `json:"price"`
-	Picture       *string `json:"picture"`
-	MenuTypeID    *uint   `json:"menuTypeId"`
-	MenuStatusID  *uint   `json:"menuStatusId"`
-}
-
-// PATCH /partner/restaurant/menu/:id
-func (rc *RestaurantController) UpdateMenu(c *gin.Context) {
-	menuID64, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-
-	var req UpdateMenuReq
-	if err := c.ShouldBindJSON(&req); err != nil { resp.BadRequest(c, err.Error()); return }
-	if req.ID == 0 { req.ID = uint(menuID64) }
-
-	var m entity.Menu
-	if err := rc.DB.Select("id, restaurant_id").First(&m, req.ID).Error; err != nil {
-		resp.BadRequest(c, "menu not found"); return
-	}
-	if req.RestaurantID == 0 { req.RestaurantID = m.RestaurantID }
-	if _, ok := rc.ensureOwnerOrAdmin(c, req.RestaurantID); !ok { return }
-
-	updates := map[string]any{}
-	if req.MenuName != nil { updates["menu_name"] = *req.MenuName }
-	if req.Detail != nil { updates["detail"] = *req.Detail }
-	if req.Price != nil { updates["price"] = *req.Price }
-	if req.Picture != nil { updates["picture"] = *req.Picture }
-	if req.MenuTypeID != nil { updates["menu_type_id"] = *req.MenuTypeID }
-	if req.MenuStatusID != nil { updates["menu_status_id"] = *req.MenuStatusID }
-
-	if len(updates) == 0 { resp.OK(c, gin.H{"updated": 0}); return }
-	if err := rc.DB.Model(&m).Updates(updates).Error; err != nil { resp.ServerError(c, err); return }
-	resp.OK(c, gin.H{"id": m.ID, "updated": 1})
-}
-
-// GET /partner/restaurant/account?restaurantId=
-func (rc *RestaurantController) Account(c *gin.Context) {
-	restID64, _ := strconv.ParseUint(c.DefaultQuery("restaurantId", "0"), 10, 64)
-	if restID64 == 0 { resp.BadRequest(c, "restaurantId required"); return }
-	r, ok := rc.ensureOwnerOrAdmin(c, uint(restID64)); if !ok { return }
-
-	resp.OK(c, gin.H{"id": r.ID, "name": r.Name})
-}
-
-// GET /partner/restaurant/dashboard?restaurantId=
-func (rc *RestaurantController) Dashboard(c *gin.Context) {
-	restID64, _ := strconv.ParseUint(c.DefaultQuery("restaurantId", "0"), 10, 64)
-	if restID64 == 0 { resp.BadRequest(c, "restaurantId required"); return }
-	if _, ok := rc.ensureOwnerOrAdmin(c, uint(restID64)); !ok { return }
-
-	start := time.Now().Truncate(24 * time.Hour)
-	var ordersToday int64
-	var revenue int64
-	rc.DB.Model(&entity.Order{}).
-		Where("restaurant_id = ? AND created_at >= ?", uint(restID64), start).
-		Count(&ordersToday)
-	rc.DB.Model(&entity.Order{}).
-		Select("COALESCE(SUM(total),0)").
-		Where("restaurant_id = ? AND created_at >= ? AND order_status_id = ?", uint(restID64), start, 4). // 4 = Completed
-		Scan(&revenue)
-
-	resp.OK(c, gin.H{"ordersToday": ordersToday, "revenue": revenue})
-}
-
-// POST /partner/restaurant/menu/:id/image?restaurantId=xxx
-// form-data: image=<file>
-func (rc *RestaurantController) UploadMenuImage(c *gin.Context) {
-	menuID64, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	if menuID64 == 0 { resp.BadRequest(c, "invalid menu id"); return }
-
-	// โหลดเมนูเพื่อรู้ว่าอยู่ร้านไหน
-	var m entity.Menu
-	if err := rc.DB.Select("id, restaurant_id").First(&m, uint(menuID64)).Error; err != nil {
-		resp.BadRequest(c, "menu not found"); return
-	}
-	// ตรวจสิทธิ์: ต้องเป็น owner ของร้านนี้หรือ admin
-	if _, ok := rc.ensureOwnerOrAdmin(c, m.RestaurantID); !ok { return }
-
-	// รับไฟล์
-	fh, err := c.FormFile("image")
-	if err != nil { resp.BadRequest(c, "image is required"); return }
-
-	f, err := fh.Open()
-	if err != nil { resp.BadRequest(c, "cannot open uploaded file"); return }
-	defer f.Close()
-
-	const maxImageBytes = int64(5 << 20) // 5 MiB
-	lr := &io.LimitedReader{R: f, N: maxImageBytes + 1}
-	data, err := io.ReadAll(lr)
-	if err != nil { resp.ServerError(c, err); return }
-	if int64(len(data)) > maxImageBytes {
-		c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
-	}
-
-	ct := http.DetectContentType(data)
-	switch ct {
-	case "image/jpeg", "image/png", "image/webp", "image/gif":
-	default:
-		resp.BadRequest(c, "unsupported image type"); return
-	}
-
-	if err := rc.DB.Model(&m).Updates(map[string]any{
-		"image":      data,
-		"image_type": ct,
-		"image_size": int64(len(data)),
-	}).Error; err != nil {
-		resp.ServerError(c, err); return
-	}
-
-	sum := sha256.Sum256(data)
-	c.Header("ETag", fmt.Sprintf(`W/"%x"`, sum[:8]))
-	resp.OK(c, gin.H{"ok": true, "type": ct, "size": len(data)})
-}
-
-// GET /menus/:id/image   (public)
-func (rc *RestaurantController) GetMenuImage(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil { resp.BadRequest(c, "invalid id"); return }
-
-	var m entity.Menu
-	if err := rc.DB.Select("image, image_type, image_size").First(&m, id).Error; err != nil {
-		c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
-	}
-	if len(m.Image) == 0 {
-		c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large (max 5MB)"})
-	}
-
-	sum := sha256.Sum256(m.Image)
-	etag := fmt.Sprintf(`W/"%x"`, sum[:8])
-	if c.GetHeader("If-None-Match") == etag { c.Status(http.StatusNotModified); return }
-	c.Header("ETag", etag)
-	c.Header("Cache-Control", "public, max-age=86400")
-
-	ct := m.ImageType
-	if ct == "" { ct = http.DetectContentType(m.Image) }
-	c.Data(http.StatusOK, ct, m.Image)
-}
-
-// DELETE /partner/restaurant/menu/:id/image?restaurantId=xxx
-func (rc *RestaurantController) DeleteMenuImage(c *gin.Context) {
-	menuID64, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-	if menuID64 == 0 { resp.BadRequest(c, "invalid menu id"); return }
-
-	var m entity.Menu
-	if err := rc.DB.Select("id, restaurant_id").First(&m, uint(menuID64)).Error; err != nil {
-		resp.BadRequest(c, "menu not found"); return
-	}
-	if _, ok := rc.ensureOwnerOrAdmin(c, m.RestaurantID); !ok { return }
-
-	if err := rc.DB.Model(&m).Updates(map[string]any{
-		"image": []byte(nil), "image_type": "", "image_size": 0,
-	}).Error; err != nil {
-		resp.ServerError(c, err); return
-	}
-	c.Status(http.StatusNoContent)
+	item.Category.ID = r.RestaurantCategory.ID
+	item.Category.Name = r.RestaurantCategory.CategoryName
+	item.Status.ID = r.RestaurantStatus.ID
+	item.Status.Name = r.RestaurantStatus.StatusName
+	item.Owner.ID = r.User.ID
+	item.Owner.FirstName = r.User.FirstName
+	item.Owner.LastName = r.User.LastName
+	item.Owner.Email = r.User.Email
+	return item
 }
