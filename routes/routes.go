@@ -181,4 +181,16 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		authOrder.DELETE("/cart", cartCtl.Clear)
 		authOrder.POST("/orders/checkout-from-cart", orderCtl.CheckoutFromCart)
 	}
+
+	// ===== Payments (เก็บสลิป Base64) =====
+	paymentCtl := controllers.NewPaymentController(db)
+
+	payments := r.Group("/payments")
+	payments.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		payments.POST("/upload-slip", paymentCtl.UploadSlip)
+		// (ทางเลือก) แสดงสลิปกลับมาให้แอดมินดู
+		// payments.GET("/:id/slip", paymentCtl.GetSlip)
+	}
+
 }

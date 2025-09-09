@@ -13,7 +13,7 @@ import (
 
 func main() {
 	cfg := configs.LoadConfig()
-	
+
 	// DB
 	configs.ConnectionDB()
 	db := configs.DB()
