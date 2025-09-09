@@ -48,6 +48,7 @@ func SetupDatabase() {
 		&entity.Review{},
 		&entity.IssueType{}, &entity.Report{},
 		&entity.RestaurantApplication{},
+		&entity.RiderApplication{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}

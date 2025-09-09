@@ -20,7 +20,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 
 	authGroup := r.Group("/auth")
 	{
-		// Public route
+		// Public
 		authGroup.POST("/register", authController.Register)
 		authGroup.POST("/login", authController.Login)
 
@@ -31,7 +31,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 			authGroup.PATCH("/me", authController.UpdateMe)
 			authGroup.POST("/me/avatar", authController.UploadAvatar)
 			authGroup.GET("/me/avatar", authController.GetAvatar)
-
 			authGroup.GET("/me/restaurant", authController.MeRestaurant)
 		}
 	}
@@ -41,12 +40,11 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportService := services.NewReportService(reportRepo)
 	reportController := controllers.NewReportController(reportService)
 
-	reportsGroup := r.Group("/reports")
-	reportsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	reportsGroup := r.Group("/reports", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		reportsGroup.POST("", reportController.CreateReport)   // Create Report
-		reportsGroup.GET("", reportController.ListReports)     // Get All Reports ของ user
-		reportsGroup.GET("/:id", reportController.GetReportByID) // Get Report by ID
+		reportsGroup.POST("", reportController.CreateReport)
+		reportsGroup.GET("", reportController.ListReports)
+		reportsGroup.GET("/:id", reportController.GetReportByID)
 	}
 
 	// ---------- Restaurants ----------
@@ -71,30 +69,22 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// Public
 	r.GET("/restaurants", restController.List)
 	r.GET("/restaurants/:id", restController.Get)
-
-	// Public: ลูกค้าเห็นเมนูของร้าน
 	r.GET("/restaurants/:id/menus", menuController.ListByRestaurant)
 	r.GET("/menus/:id", menuController.Get)
-	// Public: ลูกค้าดู options ของเมนูได้
 	r.GET("/menus/:id/options", menuOptController.ListByMenu)
-	
-	// ลูกค้า: ดู option ได้ (public)
 	r.GET("/options", optController.List)
 	r.GET("/options/:id", optController.Get)
 
-	// Owner
-	ownerGroup := r.Group("/owner")
-	ownerGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	// ---------- Owner (ล็อกให้ role=owner) 👇
+	ownerGroup := r.Group("/owner", middlewares.AuthMiddleware(cfg.JWTSecret, "owner"))
 	{
 		ownerGroup.PATCH("/restaurants/:id", restController.Update)
 		ownerGroup.POST("/restaurants/:id/menus", menuController.Create)
-    ownerGroup.PATCH("/menus/:id", menuController.Update)
-    ownerGroup.DELETE("/menus/:id", menuController.Delete)
-
+		ownerGroup.PATCH("/menus/:id", menuController.Update)
+		ownerGroup.DELETE("/menus/:id", menuController.Delete)
 		ownerGroup.PATCH("/menus/:id/status", menuController.UpdateStatus)
 
-		// Option
-    ownerGroup.POST("/options", optController.Create)
+		ownerGroup.POST("/options", optController.Create)
 		ownerGroup.PATCH("/options/:id", optController.Update)
 		ownerGroup.DELETE("/options/:id", optController.Delete)
 
@@ -107,50 +97,82 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	rAppController := controllers.NewRestaurantApplicationController(rAppService)
 
-	appsGroup := r.Group("/partner/restaurant-applications")
-	appsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	// ผู้ใช้ยื่น (ต้อง login แต่ไม่ต้องเป็น admin) 👇
+	userRestaurantApps := r.Group("/partner/restaurant-applications",
+		middlewares.AuthMiddleware(cfg.JWTSecret),
+	)
 	{
-		appsGroup.POST("", rAppController.Apply)              // ยื่นสมัคร
-		appsGroup.GET("", rAppController.List)                // แอดมินดูรายการ
-		appsGroup.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
-		appsGroup.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
+		userRestaurantApps.POST("", rAppController.Apply)
 	}
 
+	// แอดมินจัดการ (ต้อง role=admin) 👇
+	adminRestaurantApps := r.Group("/partner/restaurant-applications",
+		middlewares.AuthMiddleware(cfg.JWTSecret, "admin"),
+	)
+	{
+		adminRestaurantApps.GET("", rAppController.List)
+		adminRestaurantApps.PATCH("/:id/approve", rAppController.Approve)
+		adminRestaurantApps.PATCH("/:id/reject", rAppController.Reject)
+	}
+
+	
+
+	// ---------- Chat ----------
 	chatRepo := repository.NewChatRepository(db)
 	chatService := services.NewChatService(chatRepo)
 	chatController := controllers.NewChatController(chatService)
 
-	auth := r.Group("/chatrooms", middlewares.AuthMiddleware(cfg.JWTSecret))
+	chat := r.Group("/chatrooms", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		auth.GET("", chatController.ListRooms)
-		auth.GET("/:id/messages", chatController.ListMessages)
-		auth.POST("/:id/messages", chatController.SendMessage)
+		chat.GET("", chatController.ListRooms)
+		chat.GET("/:id/messages", chatController.ListMessages)
+		chat.POST("/:id/messages", chatController.SendMessage)
 	}
 
+	// ---------- Orders ----------
 	orderRepo := repository.NewOrderRepository(db)
-	orderSvc  := services.NewOrderService(db, orderRepo)
-	orderCtl  := controllers.NewOrderController(orderSvc)
+	orderSvc := services.NewOrderService(db, orderRepo)
+	orderCtl := controllers.NewOrderController(orderSvc)
 
-	authOrder := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret)) // ใช้ middleware เดิมของคุณ
+	authOrder := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
 		authOrder.POST("/orders", orderCtl.Create)
 		authOrder.GET("/profile/orders", orderCtl.ListForMe)
 		authOrder.GET("/orders/:id", orderCtl.Detail)
 	}
 
-	// ===== Reviews =====
+	// ---------- Reviews ----------
 	rv := controllers.NewReviewController(db)
-
-	// Public: ดูรีวิวของร้าน
 	r.GET("/restaurants/:id/reviews", rv.ListForRestaurant)
 
-	// Protected: สร้าง/ดูของตัวเอง
 	reviews := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
 		reviews.POST("/reviews", rv.Create)
 		reviews.GET("/profile/reviews", rv.ListForMe)
-		reviews.GET("/reviews/:id", rv.DetailForMe) // owner only (เช็คใน controller)
+		reviews.GET("/reviews/:id", rv.DetailForMe)
 	}
 
+	// ---------- Rider Applications ----------
+	riderAppRepo := repository.NewRiderApplicationRepository(db)
+	riderAppSvc  := services.NewRiderApplicationService(riderAppRepo)
+	riderAppCtl  := controllers.NewRiderApplicationController(riderAppSvc)
 
+	// ผู้ใช้ยื่น (login ธรรมดา) 👇
+	userRiderApps := r.Group("/partner/rider-applications",
+		middlewares.AuthMiddleware(cfg.JWTSecret),
+	)
+	{
+		userRiderApps.POST("", riderAppCtl.Apply)
+		userRiderApps.GET("/mine", riderAppCtl.ListMine)
+	}
+
+	// แอดมินจัดการ (role=admin) 👇
+	adminRiderApps := r.Group("/partner/rider-applications",
+		middlewares.AuthMiddleware(cfg.JWTSecret, "admin"),
+	)
+	{
+		adminRiderApps.GET("", riderAppCtl.List)
+		adminRiderApps.PATCH("/:id/approve", riderAppCtl.Approve)
+		adminRiderApps.PATCH("/:id/reject", riderAppCtl.Reject)
+	}
 }
