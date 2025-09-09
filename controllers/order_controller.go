@@ -127,4 +127,3 @@ func (h *OrderController) CheckoutFromCart(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, res)
 }
-

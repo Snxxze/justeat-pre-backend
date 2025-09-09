@@ -67,3 +67,39 @@ func (ctl *OwnerOrderController) Detail(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, out)
 }
+
+func (ctl *OwnerOrderController) Accept(c *gin.Context) {
+	userID := c.GetUint("userId")
+	oid, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
+	if err := ctl.Svc.OwnerAccept(userID, uint(oid)); err != nil { writeOrderErr(c, err); return }
+	c.Status(http.StatusNoContent)
+}
+func (ctl *OwnerOrderController) Handoff(c *gin.Context) {
+	userID := c.GetUint("userId")
+	oid, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
+	if err := ctl.Svc.OwnerHandoffToRider(userID, uint(oid)); err != nil { writeOrderErr(c, err); return }
+	c.Status(http.StatusNoContent)
+}
+func (ctl *OwnerOrderController) Complete(c *gin.Context) {
+	userID := c.GetUint("userId")
+	oid, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
+	if err := ctl.Svc.OwnerComplete(userID, uint(oid)); err != nil { writeOrderErr(c, err); return }
+	c.Status(http.StatusNoContent)
+}
+func (ctl *OwnerOrderController) Cancel(c *gin.Context) {
+	userID := c.GetUint("userId")
+	oid, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
+	if err := ctl.Svc.OwnerCancel(userID, uint(oid)); err != nil { writeOrderErr(c, err); return }
+	c.Status(http.StatusNoContent)
+}
+
+func writeOrderErr(c *gin.Context, err error) {
+	switch err.Error() {
+	case "forbidden":
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+	case "invalid_or_conflict":
+		c.JSON(http.StatusConflict, gin.H{"error": "invalid state or already updated"})
+	default:
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	}
+}

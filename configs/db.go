@@ -38,10 +38,9 @@ func SetupDatabase() {
 	if err := db.AutoMigrate(
 		&entity.User{}, &entity.Admin{},
 		&entity.RestaurantCategory{}, &entity.RestaurantStatus{}, &entity.Restaurant{},
-		&entity.MenuType{}, &entity.MenuStatus{}, &entity.Menu{}, &entity.MenuOption{},
-		&entity.Option{}, &entity.OptionValue{},
-		&entity.OrderStatus{}, &entity.Order{}, &entity.OrderItem{}, &entity.OrderItemSelection{},
-		&entity.Cart{}, &entity.CartItem{}, &entity.CartItemSelection{},
+		&entity.MenuType{}, &entity.MenuStatus{}, &entity.Menu{},
+		&entity.OrderStatus{}, &entity.Order{}, &entity.OrderItem{},
+		&entity.Cart{}, &entity.CartItem{},
 		&entity.PaymentMethod{}, &entity.PaymentStatus{}, &entity.Payment{},
 		&entity.RiderStatus{}, &entity.Rider{}, &entity.RiderWork{},
 		&entity.ChatRoom{}, &entity.MessageType{}, &entity.Message{},

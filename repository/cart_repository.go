@@ -17,7 +17,6 @@ func (r *CartRepository) GetCartWithItems(userID uint) (*entity.Cart, error) {
 	err := r.DB.Where("user_id = ?", userID).
 		Preload("Items").
 		Preload("Items.Menu").
-		Preload("Items.Selections").
 		First(&c).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return &entity.Cart{UserID: userID}, nil
@@ -58,14 +57,6 @@ func (r *CartRepository) UpsertItem(tx *gorm.DB, cartID uint, row *entity.CartIt
 	if err := tx.Create(row).Error; err != nil {
 		return err
 	}
-	if len(row.Selections) > 0 {
-		for i := range row.Selections {
-			row.Selections[i].CartItemID = row.ID
-		}
-		if err := tx.Create(&row.Selections).Error; err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -101,11 +92,6 @@ func (r *CartRepository) ClearCart(tx *gorm.DB, userID uint) error {
 	var c entity.Cart
 	if err := tx.Where("user_id = ?", userID).First(&c).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) { return nil }
-		return err
-	}
-	// ลบลูกก่อน (เผื่อฐานข้อมูลยังไม่ได้เปิด FK CASCADE)
-	if err := tx.Where("cart_item_id IN (SELECT id FROM cart_items WHERE cart_id = ?)", c.ID).
-		Delete(&entity.CartItemSelection{}).Error; err != nil {
 		return err
 	}
 	if err := tx.Where("cart_id = ?", c.ID).Delete(&entity.CartItem{}).Error; err != nil {

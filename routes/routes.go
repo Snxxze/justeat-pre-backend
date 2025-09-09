@@ -19,8 +19,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	userRepo := repository.NewUserRepository(db)
 	restRepo := repository.NewRestaurantRepository(db)
 	menuRepo := repository.NewMenuRepository(db)
-	menuOptRepo := repository.NewMenuOptionRepository(db)
-	optRepo := repository.NewOptionRepository(db)
 	reportRepo := repository.NewReportRepository(db)
 	rAppRepo := repository.NewRestaurantApplicationRepository(db)
 	chatRepo := repository.NewChatRepository(db)
@@ -33,8 +31,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
 	restService := services.NewRestaurantService(restRepo)
 	menuService := services.NewMenuService(menuRepo)
-	menuOptService := services.NewMenuOptionService(menuOptRepo)
-	optService := services.NewOptionService(optRepo)
 	reportService := services.NewReportService(reportRepo)
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	chatService := services.NewChatService(chatRepo)
@@ -49,8 +45,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	authController := controllers.NewAuthController(authService)
 	restController := controllers.NewRestaurantController(restService)
 	menuController := controllers.NewMenuController(menuService)
-	menuOptController := controllers.NewMenuOptionController(menuOptService)
-	optController := controllers.NewOptionController(optService)
 	reportController := controllers.NewReportController(reportService)
 	rAppController := controllers.NewRestaurantApplicationController(rAppService)
 	chatController := controllers.NewChatController(chatService)
@@ -99,12 +93,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// Public: ลูกค้าเห็นเมนูของร้าน
 	r.GET("/restaurants/:id/menus", menuController.ListByRestaurant)
 	r.GET("/menus/:id", menuController.Get)
-	// Public: ลูกค้าดู options ของเมนูได้
-	r.GET("/menus/:id/options", menuOptController.ListByMenu)
-
-	// ลูกค้า: ดู option ได้ (public)
-	r.GET("/options", optController.List)
-	r.GET("/options/:id", optController.Get)
 
 	// ---------- Owner ----------
 	ownerGroup := r.Group("/owner")
@@ -116,16 +104,13 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		ownerGroup.POST("/restaurants/:id/menus", menuController.Create)
 		ownerGroup.PATCH("/menus/:id", menuController.Update)
 		ownerGroup.DELETE("/menus/:id", menuController.Delete)
-
 		ownerGroup.PATCH("/menus/:id/status", menuController.UpdateStatus)
 
-		// Option
-		ownerGroup.POST("/options", optController.Create)
-		ownerGroup.PATCH("/options/:id", optController.Update)
-		ownerGroup.DELETE("/options/:id", optController.Delete)
+		ownerGroup.POST("/orders/:orderId/accept",   ownerOrderCtl.Accept)   // Pending -> Preparing
+    ownerGroup.POST("/orders/:orderId/handoff",  ownerOrderCtl.Handoff)  // Preparing -> Delivering
+    ownerGroup.POST("/orders/:orderId/complete", ownerOrderCtl.Complete) // Delivering -> Completed
+    ownerGroup.POST("/orders/:orderId/cancel",   ownerOrderCtl.Cancel)   // Pending -> Cancelled
 
-		ownerGroup.POST("/menus/:id/options", menuOptController.AttachOption)
-		ownerGroup.DELETE("/menus/:id/options/:optionId", menuOptController.DetachOption)
 	}
 
 	// ---------- Restaurant Applications ----------

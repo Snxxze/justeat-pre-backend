@@ -38,36 +38,12 @@ func (r *OrderRepository) ValidateMenusBelongToRestaurant(menuIDs []uint, restID
 	return cnt == int64(len(menuIDs)), nil
 }
 
-// ตรวจว่า option values ทั้งหมดเป็นของ "option" ที่ผูกกับเมนูนี้จริง
-func (r *OrderRepository) CountOptionValuesBelongToMenu(menuID uint, valueIDs []uint) (int64, error) {
-	if len(valueIDs) == 0 { return 0, nil }
-	var cnt int64
-	// ov -> options o -> menu_options mo (menu_id)
-	err := r.DB.Table("option_values AS ov").
-		Joins("JOIN options o ON ov.option_id = o.id").
-		Joins("JOIN menu_options mo ON mo.option_id = o.id").
-		Where("mo.menu_id = ? AND ov.id IN ?", menuID, valueIDs).
-		Count(&cnt).Error
-	return cnt, err
-}
-
-func (r *OrderRepository) GetOptionValuesByIDs(ids []uint) ([]entity.OptionValue, error) {
-	if len(ids) == 0 { return nil, nil }
-	var vals []entity.OptionValue
-	err := r.DB.Select("id, option_id, price_adjustment").Where("id IN ?", ids).Find(&vals).Error
-	return vals, err
-}
-
 // ---------- Mutations (use with Transaction) ----------
 func (r *OrderRepository) CreateOrder(tx *gorm.DB, o *entity.Order) error {
 	return tx.Create(o).Error
 }
 func (r *OrderRepository) CreateOrderItem(tx *gorm.DB, oi *entity.OrderItem) error {
 	return tx.Create(oi).Error
-}
-func (r *OrderRepository) CreateOrderItemSelections(tx *gorm.DB, rows []entity.OrderItemSelection) error {
-	if len(rows) == 0 { return nil }
-	return tx.Create(&rows).Error
 }
 
 // ---------- Queries for list/detail ----------
@@ -207,4 +183,26 @@ func (r *OrderRepository) GetOrderForRestaurant(restID, orderID uint) (*entity.O
 		return nil, err
 	}
 	return &o, nil
+}
+
+func (r *OrderRepository) GetOrder(orderID uint) (*entity.Order, error) {
+	var o entity.Order
+	if err := r.DB.First(&o, orderID).Error; err != nil { return nil, err }
+	return &o, nil
+}
+
+// หา id ของสถานะตามชื่อ
+func (r *OrderRepository) GetStatusIDByName(name string) (uint, error) {
+	var row struct{ ID uint }
+	err := r.DB.Model(&entity.OrderStatus{}).
+		Select("id").Where("status_name = ?", name).First(&row).Error
+	return row.ID, err
+}
+
+// อัปเดตสถานะแบบมี guard: จะอัปเดตก็ต่อเมื่อสถานะปัจจุบัน = fromID
+func (r *OrderRepository) UpdateStatusGuard(tx *gorm.DB, orderID uint, fromID, toID uint) (int64, error) {
+	res := tx.Model(&entity.Order{}).
+		Where("id = ? AND order_status_id = ?", orderID, fromID).
+		Update("order_status_id", toID)
+	return res.RowsAffected, res.Error
 }

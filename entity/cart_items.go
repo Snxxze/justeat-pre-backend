@@ -16,6 +16,4 @@ type CartItem struct {
 	UnitPrice int64 `json:"unitPrice"`
 	Total     int64 `json:"total"`
 	Note       string `json:"note"`
-
-	Selections []CartItemSelection `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"selections"`
 }

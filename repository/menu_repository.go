@@ -18,7 +18,6 @@ func NewMenuRepository(db *gorm.DB) *MenuRepository {
 func (r *MenuRepository) FindByRestaurant(restID uint) ([]entity.Menu, error) {
 	var menus []entity.Menu
 	err := r.DB.
-		Preload("Options.OptionValues").
 		Preload("MenuType").
 		Preload("MenuStatus").
 		Where("restaurant_id = ?", restID).
@@ -30,7 +29,6 @@ func (r *MenuRepository) FindByRestaurant(restID uint) ([]entity.Menu, error) {
 func (r *MenuRepository) FindByID(id uint) (*entity.Menu, error) {
 	var menu entity.Menu
 	err := r.DB.
-		Preload("Options.OptionValues").
 		Preload("MenuType").
 		Preload("MenuStatus").
 		First(&menu, id).Error

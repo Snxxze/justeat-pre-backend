@@ -110,49 +110,9 @@ func SeedLookups() error {
 	db.FirstOrCreate(&entity.MenuType{}, entity.MenuType{TypeName: "ของหวาน"})
 	db.FirstOrCreate(&entity.MenuType{}, entity.MenuType{TypeName: "เครื่องดื่ม"})
 
-	sizeOption := entity.Option{
-		Name:       "เลือก Size",
-		Type:       "radio",
-		MinSelect:  1,
-		MaxSelect:  1,
-		IsRequired: true,
-		SortOrder:  1,
-	}
-	db.FirstOrCreate(&sizeOption, entity.Option{Name: "เลือก Size"})
-
-	db.FirstOrCreate(&entity.OptionValue{}, entity.OptionValue{
-		OptionID: sizeOption.ID, Name: "S", PriceAdjustment: 0, DefaultSelect: true, IsAvailable: true, SortOrder: 1,
-	})
-	db.FirstOrCreate(&entity.OptionValue{}, entity.OptionValue{
-		OptionID: sizeOption.ID, Name: "M", PriceAdjustment: 10, DefaultSelect: false, IsAvailable: true, SortOrder: 2,
-	})
-	db.FirstOrCreate(&entity.OptionValue{}, entity.OptionValue{
-		OptionID: sizeOption.ID, Name: "L", PriceAdjustment: 20, DefaultSelect: false, IsAvailable: true, SortOrder: 3,
-	})
-
-	// ----------------- อีกตัวอย่าง -----------------
-	noodleOption := entity.Option{
-		Name:       "เลือกเส้น",
-		Type:       "radio",
-		MinSelect:  1,
-		MaxSelect:  1,
-		IsRequired: true,
-		SortOrder:  2,
-	}
-	db.FirstOrCreate(&noodleOption, entity.Option{Name: "เลือกเส้น"})
-
-	db.FirstOrCreate(&entity.OptionValue{}, entity.OptionValue{
-		OptionID: noodleOption.ID, Name: "เส้นเล็ก", PriceAdjustment: 0, DefaultSelect: true, IsAvailable: true, SortOrder: 1,
-	})
-	db.FirstOrCreate(&entity.OptionValue{}, entity.OptionValue{
-		OptionID: noodleOption.ID, Name: "เส้นใหญ่", PriceAdjustment: 0, DefaultSelect: false, IsAvailable: true, SortOrder: 2,
-	})
-	db.FirstOrCreate(&entity.OptionValue{}, entity.OptionValue{
-		OptionID: noodleOption.ID, Name: "บะหมี่", PriceAdjustment: 0, DefaultSelect: false, IsAvailable: true, SortOrder: 3,
-	})
-
 	// Order Status
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Pending"})
+	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Preparing"})
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Delivering"})
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Completed"})
 	db.FirstOrCreate(&entity.OrderStatus{}, entity.OrderStatus{StatusName: "Cancelled"})
