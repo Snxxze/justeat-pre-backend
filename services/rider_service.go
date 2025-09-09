@@ -153,3 +153,8 @@ func (s *RiderService) CompleteWork(userID, orderID uint) error {
 		return nil
 	})
 }
+
+func (s *RiderService) ListAvailable() ([]repository.AvailableOrderRow, error) {
+	if err := s.initIDs(); err != nil { return nil, err }
+	return s.WorkRepo.ListAvailable(s.OrderPreparingID, 50)
+}

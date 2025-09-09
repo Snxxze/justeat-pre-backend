@@ -26,6 +26,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	orderRepo := repository.NewOrderRepository(db)
 	riderRepo := repository.NewRiderRepository(db)
 	riderWorkRepo := repository.NewRiderWorkRepository(db)
+	riderAppRepo := repository.NewRiderApplicationRepository(db)
 
 	// ------------------------------------------------------------
 	// Services
@@ -36,6 +37,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportService := services.NewReportService(reportRepo)
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	chatService := services.NewChatService(chatRepo)
+	riderAppSvc  := services.NewRiderApplicationService(riderAppRepo ,riderRepo)
 
 	// Order/Cart
 	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
@@ -51,6 +53,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportController := controllers.NewReportController(reportService)
 	rAppController := controllers.NewRestaurantApplicationController(rAppService)
 	chatController := controllers.NewChatController(chatService)
+	riderAppCtl  := controllers.NewRiderApplicationController(riderAppSvc)
 
 	orderCtl := controllers.NewOrderController(orderSvc)
 	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)
@@ -120,18 +123,40 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	riderGroup := r.Group("/rider", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
 		riderGroup.PATCH("/me/availability", riderCtl.SetAvailability) // ONLINE / OFFLINE
+		riderGroup.GET("/works/available", riderCtl.ListAvailable) 
+		
 		riderGroup.POST("/works/:orderId/accept", riderCtl.Accept)     // Preparing -> Delivering (assign งาน)
 		riderGroup.POST("/works/:orderId/complete", riderCtl.Complete) // Delivering -> Completed
 	}
 
 	// ---------- Restaurant Applications ----------
-	appsGroup := r.Group("/partner/restaurant-applications")
-	appsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	partnerRestApps := r.Group("/partner/restaurant-applications")
+	partnerRestApps.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		appsGroup.POST("", rAppController.Apply)                // ยื่นสมัคร
-		appsGroup.GET("", rAppController.List)                  // แอดมินดูรายการ
-		appsGroup.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
-		appsGroup.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
+		partnerRestApps.POST("", rAppController.Apply)                // ยื่นสมัคร
+		partnerRestApps.GET("", rAppController.List)                  // แอดมินดูรายการ
+	}
+
+	adminRestApps := r.Group("/partner/restaurant-applications", middlewares.AuthMiddleware(cfg.JWTSecret, "admin")) 
+	{
+		adminRestApps.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
+		adminRestApps.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
+	}
+
+	// ---------- Rider Applications ----------
+	// ผู้ใช้ยื่น/ดูของตัวเอง
+	userRiderApps := r.Group("/partner/rider-applications", middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		userRiderApps.POST("", riderAppCtl.Apply)
+		userRiderApps.GET("/mine", riderAppCtl.ListMine)
+	}
+
+	// แอดมินจัดการ
+	adminRiderApps := r.Group("/partner/rider-applications", middlewares.AuthMiddleware(cfg.JWTSecret, "admin"))
+	{
+		adminRiderApps.GET("", riderAppCtl.List)
+		adminRiderApps.PATCH("/:id/approve", riderAppCtl.Approve)
+		adminRiderApps.PATCH("/:id/reject", riderAppCtl.Reject)
 	}
 
 	// ---------- Chat ----------

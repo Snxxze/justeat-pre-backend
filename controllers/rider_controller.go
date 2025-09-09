@@ -68,3 +68,13 @@ func (h *RiderController) Complete(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
+func (h *RiderController) ListAvailable(c *gin.Context) {
+	items, err := h.Svc.ListAvailable()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// จะคืนเป็น {items: [...]} หรือ [...] ก็ได้ เลือกแบบนี้ให้ FE รองรับง่าย
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}

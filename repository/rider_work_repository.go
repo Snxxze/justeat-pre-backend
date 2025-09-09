@@ -42,3 +42,38 @@ func (rw *RiderWorkRepository) HasWorkForOrder(orderID uint) (bool, error) {
 	}
 	return cnt > 0, nil
 }
+
+type AvailableOrderRow struct {
+	ID             uint      `json:"id"`
+	CreatedAt      time.Time `json:"createdAt"`
+	RestaurantName string    `json:"restaurantName"`
+	CustomerName   string    `json:"customerName"`
+	Address        string    `json:"address"`
+	Total          int64     `json:"total"`
+}
+
+func (rw *RiderWorkRepository) ListAvailable(preparingStatusID uint, limit int) ([]AvailableOrderRow, error) {
+	if limit <= 0 || limit > 100 { limit = 20 }
+
+	var rows []AvailableOrderRow
+	err := rw.DB.
+		Table("orders AS o").
+		Select(`
+      o.id,
+      o.created_at,
+      r.name AS restaurant_name,
+      CONCAT(u.first_name, ' ', u.last_name) AS customer_name,
+      o.address,
+      o.total
+    `).
+		Joins("JOIN users u ON u.id = o.user_id").
+		Joins("JOIN restaurants r ON r.id = o.restaurant_id").
+		// ถ้ายังไม่มีงานของ order นี้ที่ยังไม่จบ -> แปลว่ายังว่าง
+		Joins("LEFT JOIN rider_works rw2 ON rw2.order_id = o.id AND rw2.finish_at IS NULL").
+		Where("o.order_status_id = ? AND rw2.id IS NULL", preparingStatusID).
+		Order("o.id DESC").
+		Limit(limit).
+		Scan(&rows).Error
+
+	return rows, err
+}
