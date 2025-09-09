@@ -59,7 +59,7 @@ func (s *RiderApplicationService) Approve(appID uint, req RiderApproveReq) (*ent
 		UserID:        app.UserID,
 		VehiclePlate:  app.VehiclePlate,
 		License:       app.License,
-		DriveCar:      app.DriveCar != "", // ถ้ามีรูป/หลักฐานให้ถือว่า driveCar = true
+		DriveCard:      app.DriveCar, // ถ้ามีรูป/หลักฐานให้ถือว่า driveCar = true
 		RiderStatusID: onlineID,           // ใช้ id ที่ lookup ได้
 		AdminID:       req.AdminID,
 	}
