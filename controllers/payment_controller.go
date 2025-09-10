@@ -207,7 +207,7 @@ func (ctl *PaymentController) UploadSlip(c *gin.Context) {
 			TransRef  string  `json:"transRef"`
 		}{
 			PaymentID: int(p.ID),
-			Amount:    float64(req.Amount) / 100.0, // สตางค์ -> บาท
+			Amount:    float64(req.Amount),
 			TransRef:  fmt.Sprintf("TXN-%d", p.ID), // ยังไม่มีจาก EasySlip ใน endpoint นี้
 		},
 	}
@@ -325,15 +325,22 @@ func (ctl *PaymentController) GetPaymentIntent(c *gin.Context) {
     c.JSON(http.StatusInternalServerError, gin.H{"error":"owner not found"}); return
   }
 
-  // NOTE: ใน schema ใช้ int64 สำหรับเงิน → แนะนำเก็บหน่วย "สตางค์" ทั้งระบบ
-  totalSatang := ord.Total
+  // ✅ ที่นี่กำหนดชัดเจนว่า ord.Total = "บาท"
+  amountBaht := float64(ord.Total)
+  totalSatang := int64(math.Round(amountBaht * 100.0))
+
   c.JSON(http.StatusOK, gin.H{
-    "orderId":           ord.ID,
-    "restaurantId":      rest.ID,
-    "restaurantUserId":  owner.ID,
-    "promptPayMobile":   owner.PhoneNumber,      // ใช้เบอร์ของ owner
-    "totalSatang":       totalSatang,            // ใช้ไป verify slip
-    "totalBaht":         float64(totalSatang)/100.0,
+    "orderId":          ord.ID,
+    "restaurantId":     rest.ID,
+    "restaurantUserId": owner.ID,
+    "promptPayMobile":  owner.PhoneNumber,
+
+    // ใช้งานใน FE เวอร์ชันใหม่
+    "amount":           amountBaht,          // บาท ตรง ๆ
+
+    // เผื่อจุดอื่นยังพึ่งพาฟิลด์เก่าอยู่
+    "totalBaht":        amountBaht,          // บาท
+    "totalSatang":      totalSatang,         // สตางค์ (บาท*100)
   })
 }
 
@@ -372,7 +379,7 @@ func (ctl *PaymentController) GetPaymentSummary(c *gin.Context) {
 
   c.JSON(http.StatusOK, gin.H{
     "orderCode":  fmt.Sprintf("ORD-%d", ord.ID),
-    "paidAmount": float64(pay.Amount)/100.0,
+    "paidAmount": float64(pay.Amount),
     "currency":   "THB",
     "method":     "PromptPay",
     "paidAt":     pay.PaidAt, // ISO8601
@@ -472,18 +479,18 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		}
 
 		rawBaht := ok.Data.Amount.Amount
-		slipSatang := int64(math.Round(rawBaht * 100))
-		matched := (req.Amount == 0) || (slipSatang == req.Amount)
+		slipBaht := int64(math.Round(rawBaht)) // ปัดเป็นบาทจำนวนเต็ม
+		matched := (req.Amount == 0) || (slipBaht == req.Amount)
 
 		// ---- ถ้ายอดไม่ตรง: ไม่แตะ DB, ตอบ 400 amount_mismatch ----
 		if !matched {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success":        false,
 				"error":          "amount_mismatch",
-				"expectedSatang": req.Amount,
-				"expectedBaht":   float64(req.Amount) / 100.0,
+				"expectedSatang": req.Amount * 100,          // ส่งไว้เผื่อ FE เก่าใช้
+				"expectedBaht":   float64(req.Amount),       // ✅ บาทตรง ๆ
 				"slipData": gin.H{
-					"amountSatang": slipSatang,
+					"amountSatang": int64(math.Round(rawBaht * 100)),
 					"amountBaht":   rawBaht,
 					"date":         ok.Data.Date,
 					"transRef":     ok.Data.TransRef,
@@ -499,7 +506,7 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 
 		p.SlipBase64 = b64
 		p.SlipContentType = req.ContentType
-		p.Amount = slipSatang
+		p.Amount = slipBaht 
 		p.TransRef = &ok.Data.TransRef
 
 		now := time.Now()
@@ -517,10 +524,10 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 			"success":        true,
 			"matchedAmount":  true,
 			"paymentId":      p.ID,
-			"expectedSatang": req.Amount,
-			"expectedBaht":   float64(req.Amount) / 100.0,
+			"expectedSatang": req.Amount * 100,
+			"expectedBaht":   float64(req.Amount),
 			"slipData": gin.H{
-				"amountSatang": slipSatang,
+				"amountSatang": int64(math.Round(rawBaht * 100)),
 				"amountBaht":   rawBaht,
 				"date":         ok.Data.Date,
 				"transRef":     ok.Data.TransRef,
@@ -538,66 +545,63 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		return
 	}
 	if ok.Message == "duplicate_slip" && ok.Data != nil {
-		// ---- สลิปซ้ำ: ตัดสินจาก "ยอด" ว่าจะยอมรับเลย หรือฟ้อง mismatch ----
-		dupBaht := ok.Data.Amount.Amount
-		dupSatang := int64(math.Round(dupBaht * 100))
-		matched := (req.Amount == 0) || (dupSatang == req.Amount)
+    // EasySlip ส่ง amount เป็น "บาท" (float64)
+    dupBaht := ok.Data.Amount.Amount
+    dupBahtInt := int64(math.Round(dupBaht)) // เก็บ/เทียบเป็น "บาทจำนวนเต็ม"
 
-		if !matched {
-			//  duplicate แต่ยอด "ไม่ตรง" → ฟ้อง amount_mismatch (ไม่แตะ DB)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success":        false,
-				"error":          "amount_mismatch",
-				"expectedSatang": req.Amount,
-				"expectedBaht":   float64(req.Amount) / 100.0,
-				"slipData": gin.H{
-					"amountSatang": dupSatang,
-					"amountBaht":   dupBaht,
-					"date":         ok.Data.Date,
-					"transRef":     ok.Data.TransRef,
-				},
-			})
-			return
-		}
+    // ถ้า req.Amount == 0 แปลว่าไม่เข้มงวดยอด (ยอมรับได้ทุกยอด)
+    matched := (req.Amount == 0) || (dupBahtInt == req.Amount)
 
-		//  duplicate แต่ยอด "ตรง" → treat as success (idempotent) แล้วบันทึกลง DB
-		if req.ContentType == "" || !strings.HasPrefix(req.ContentType, "image/") {
-			req.ContentType = "image/*"
-		}
-		p.SlipBase64 = b64 // เก็บรูปไว้เพื่อ audit
-		p.SlipContentType = req.ContentType
-		p.Amount = dupSatang
-		p.TransRef = &ok.Data.TransRef // แนะนำทำ unique index ที่ DB (ไว้ค่อยเพิ่ม)
+    if !matched {
+        // duplicate แต่ "ยอดไม่ตรง" → ไม่แตะ DB ให้แจ้ง mismatch กลับ
+        c.JSON(http.StatusBadRequest, gin.H{
+            "success":        false,
+            "error":          "amount_mismatch",
+            "expectedSatang": req.Amount * 100,    // เผื่อ FE เก่ายังอ่านเป็นสตางค์
+            "expectedBaht":   float64(req.Amount), // ✅ บาทตรง ๆ
+            "slipData": gin.H{
+                "amountSatang": int64(math.Round(dupBaht * 100)),
+                "amountBaht":   dupBaht,
+                "date":         ok.Data.Date,
+                "transRef":     ok.Data.TransRef,
+            },
+        })
+        return
+    }
 
-		now := time.Now()
-		p.PaidAt = &now
-		if err := ctl.DB.Where("status_name = ?", "Paid").First(&paidStatus).Error; err == nil {
-			p.PaymentStatusID = paidStatus.ID
-		}
+    // duplicate แต่ "ยอดตรง" → treat as success (idempotent) แล้วบันทึกลง DB (เก็บเป็นบาท)
+    if req.ContentType == "" || !strings.HasPrefix(req.ContentType, "image/") {
+        req.ContentType = "image/*"
+    }
+    p.SlipBase64 = b64 // เก็บรูปไว้เพื่อ audit
+    p.SlipContentType = req.ContentType
+    p.Amount = dupBahtInt               // ✅ เก็บเป็น "บาท"
+    p.TransRef = &ok.Data.TransRef      // (ควรมี unique index ที่ DB ในอนาคต)
 
-		if err := ctl.DB.Save(&p).Error; err != nil {
-			// ถ้าเจอ unique-constraint ของ transRef ก็กันการผูกซ้ำโดยธรรมชาติ
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "db_save_payment_error"})
-			return
-		}
+    now := time.Now()
+    p.PaidAt = &now
+    if err := ctl.DB.Where("status_name = ?", "Paid").First(&paidStatus).Error; err == nil {
+        p.PaymentStatusID = paidStatus.ID
+    }
 
-		c.JSON(http.StatusOK, gin.H{
-			"success":        true,
-			"matchedAmount":  true,
-			"paymentId":      p.ID,
-			"expectedSatang": req.Amount,
-			"expectedBaht":   float64(req.Amount) / 100.0,
-			"slipData": gin.H{
-				"amountSatang": dupSatang,
-				"amountBaht":   dupBaht,
-				"date":         ok.Data.Date,
-				"transRef":     ok.Data.TransRef,
-			},
-		})
-		return
-	}
-	c.JSON(resp.StatusCode, gin.H{
-		"success": false,
-		"error":   ok.Message, // invalid_image / unauthorized / quota_exceeded / ...
-	})
+    if err := ctl.DB.Save(&p).Error; err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "db_save_payment_error"})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "success":        true,
+        "matchedAmount":  true,
+        "paymentId":      p.ID,
+        "expectedSatang": req.Amount * 100,
+        "expectedBaht":   float64(req.Amount),
+        "slipData": gin.H{
+            "amountSatang": int64(math.Round(dupBaht * 100)),
+            "amountBaht":   dupBaht,
+            "date":         ok.Data.Date,
+            "transRef":     ok.Data.TransRef,
+        },
+    })
+    return
+}
 }

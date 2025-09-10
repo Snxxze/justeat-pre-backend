@@ -110,7 +110,7 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 	}
 
 	discount := int64(0)
-	deliveryFee := int64(20)
+	deliveryFee := int64(2)
 	total := subtotal - discount + deliveryFee
 	const pendingStatusID uint = 1
 
@@ -198,7 +198,7 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 		subtotal += it.Total
 	}
 	discount := int64(0)
-	delivery := int64(20)
+	delivery := int64(2)
 	total := subtotal - discount + delivery
 	const pending uint = 1 // TODO: lookup จริง
 
