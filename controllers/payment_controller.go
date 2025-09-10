@@ -293,100 +293,134 @@ type verifySlipReq struct {
 
 // GET /api/orders/:id/payment-intent
 func (ctl *PaymentController) GetPaymentIntent(c *gin.Context) {
-  v, ok := c.Get("userId")
-  if !ok || v == nil { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
-  uid, ok := v.(uint); if !ok || uid == 0 { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+	v, ok := c.Get("userId")
+	if !ok || v == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	uid, ok := v.(uint)
+	if !ok || uid == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 
-  idStr := c.Param("id")
-  oid, err := strconv.Atoi(idStr)
-  if err != nil || oid <= 0 { c.JSON(http.StatusBadRequest, gin.H{"error":"invalid order id"}); return }
+	idStr := c.Param("id")
+	oid, err := strconv.Atoi(idStr)
+	if err != nil || oid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+		return
+	}
 
-  // โหลดออเดอร์
-  var ord entity.Order
-  if err := ctl.DB.First(&ord, uint(oid)).Error; err != nil {
-    status := http.StatusInternalServerError
-    if errors.Is(err, gorm.ErrRecordNotFound) { status = http.StatusNotFound }
-    c.JSON(status, gin.H{"error":"order not found"})
-    return
-  }
-  // จำกัดสิทธิ์ เจ้าของออเดอร์เท่านั้น
-  if ord.UserID != uid {
-    c.JSON(http.StatusForbidden, gin.H{"error":"forbidden"})
-    return
-  }
+	// โหลดออเดอร์
+	var ord entity.Order
+	if err := ctl.DB.First(&ord, uint(oid)).Error; err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": "order not found"})
+		return
+	}
+	// จำกัดสิทธิ์ เจ้าของออเดอร์เท่านั้น
+	if ord.UserID != uid {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
 
-  // โหลดร้าน + เจ้าของร้านเพื่อเอาเบอร์
-  var rest entity.Restaurant
-  if err := ctl.DB.First(&rest, ord.RestaurantID).Error; err != nil {
-    c.JSON(http.StatusInternalServerError, gin.H{"error":"restaurant not found"}); return
-  }
-  var owner entity.User
-  if err := ctl.DB.First(&owner, rest.UserID).Error; err != nil {
-    c.JSON(http.StatusInternalServerError, gin.H{"error":"owner not found"}); return
-  }
+	// โหลดร้าน + เจ้าของร้านเพื่อเอาเบอร์
+	var rest entity.Restaurant
+	if err := ctl.DB.First(&rest, ord.RestaurantID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "restaurant not found"})
+		return
+	}
+	var owner entity.User
+	if err := ctl.DB.First(&owner, rest.UserID).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "owner not found"})
+		return
+	}
 
-  // ✅ ที่นี่กำหนดชัดเจนว่า ord.Total = "บาท"
-  amountBaht := float64(ord.Total)
-  totalSatang := int64(math.Round(amountBaht * 100.0))
+	// ✅ ที่นี่กำหนดชัดเจนว่า ord.Total = "บาท"
+	amountBaht := float64(ord.Total)
+	totalSatang := int64(math.Round(amountBaht * 100.0))
 
-  c.JSON(http.StatusOK, gin.H{
-    "orderId":          ord.ID,
-    "restaurantId":     rest.ID,
-    "restaurantUserId": owner.ID,
-    "promptPayMobile":  owner.PhoneNumber,
+	c.JSON(http.StatusOK, gin.H{
+		"orderId":          ord.ID,
+		"restaurantId":     rest.ID,
+		"restaurantUserId": owner.ID,
+		"promptPayMobile":  owner.PhoneNumber,
 
-    // ใช้งานใน FE เวอร์ชันใหม่
-    "amount":           amountBaht,          // บาท ตรง ๆ
+		// ใช้งานใน FE เวอร์ชันใหม่
+		"amount": amountBaht, // บาท ตรง ๆ
 
-    // เผื่อจุดอื่นยังพึ่งพาฟิลด์เก่าอยู่
-    "totalBaht":        amountBaht,          // บาท
-    "totalSatang":      totalSatang,         // สตางค์ (บาท*100)
-  })
+		// เผื่อจุดอื่นยังพึ่งพาฟิลด์เก่าอยู่
+		"totalBaht":   amountBaht,  // บาท
+		"totalSatang": totalSatang, // สตางค์ (บาท*100)
+	})
 }
-
 
 // GET /api/orders/:id/payment-summary
 func (ctl *PaymentController) GetPaymentSummary(c *gin.Context) {
-  v, ok := c.Get("userId")
-  if !ok || v == nil { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
-  uid, ok := v.(uint); if !ok || uid == 0 { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+	v, ok := c.Get("userId")
+	if !ok || v == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	uid, ok := v.(uint)
+	if !ok || uid == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 
-  idStr := c.Param("id")
-  oid, err := strconv.Atoi(idStr)
-  if err != nil || oid <= 0 { c.JSON(http.StatusBadRequest, gin.H{"error":"invalid order id"}); return }
+	idStr := c.Param("id")
+	oid, err := strconv.Atoi(idStr)
+	if err != nil || oid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+		return
+	}
 
-  var ord entity.Order
-  if err := ctl.DB.First(&ord, uint(oid)).Error; err != nil {
-    status := http.StatusInternalServerError
-    if errors.Is(err, gorm.ErrRecordNotFound) { status = http.StatusNotFound }
-    c.JSON(status, gin.H{"error":"order not found"}); return
-  }
-  if ord.UserID != uid { c.JSON(http.StatusForbidden, gin.H{"error":"forbidden"}); return }
+	var ord entity.Order
+	if err := ctl.DB.First(&ord, uint(oid)).Error; err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": "order not found"})
+		return
+	}
+	if ord.UserID != uid {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
 
-  // หา payment ล่าสุดของออเดอร์นี้
-  var pay entity.Payment
-  if err := ctl.DB.Where("order_id = ?", ord.ID).Order("id desc").First(&pay).Error; err != nil {
-    status := http.StatusInternalServerError
-    if errors.Is(err, gorm.ErrRecordNotFound) { status = http.StatusNotFound }
-    c.JSON(status, gin.H{"error":"payment not found"}); return
-  }
-  if pay.PaidAt == nil {
-    c.JSON(http.StatusBadRequest, gin.H{"error":"payment not completed"}); return
-  }
+	// หา payment ล่าสุดของออเดอร์นี้
+	var pay entity.Payment
+	if err := ctl.DB.Where("order_id = ?", ord.ID).Order("id desc").First(&pay).Error; err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": "payment not found"})
+		return
+	}
+	if pay.PaidAt == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "payment not completed"})
+		return
+	}
 
-  txnId := ""
-  if pay.TransRef != nil { txnId = *pay.TransRef }
+	txnId := ""
+	if pay.TransRef != nil {
+		txnId = *pay.TransRef
+	}
 
-  c.JSON(http.StatusOK, gin.H{
-    "orderCode":  fmt.Sprintf("ORD-%d", ord.ID),
-    "paidAmount": float64(pay.Amount),
-    "currency":   "THB",
-    "method":     "PromptPay",
-    "paidAt":     pay.PaidAt, // ISO8601
-    "txnId":      txnId,
-  })
+	c.JSON(http.StatusOK, gin.H{
+		"orderCode":  fmt.Sprintf("ORD-%d", ord.ID),
+		"paidAmount": float64(pay.Amount),
+		"currency":   "THB",
+		"method":     "PromptPay",
+		"paidAt":     pay.PaidAt, // ISO8601
+		"txnId":      txnId,
+	})
 }
-
 
 // POST /api/payments/verify-easyslip
 func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
@@ -487,8 +521,8 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success":        false,
 				"error":          "amount_mismatch",
-				"expectedSatang": req.Amount * 100,          // ส่งไว้เผื่อ FE เก่าใช้
-				"expectedBaht":   float64(req.Amount),       // ✅ บาทตรง ๆ
+				"expectedSatang": req.Amount * 100,    // ส่งไว้เผื่อ FE เก่าใช้
+				"expectedBaht":   float64(req.Amount), // ✅ บาทตรง ๆ
 				"slipData": gin.H{
 					"amountSatang": int64(math.Round(rawBaht * 100)),
 					"amountBaht":   rawBaht,
@@ -506,7 +540,7 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 
 		p.SlipBase64 = b64
 		p.SlipContentType = req.ContentType
-		p.Amount = slipBaht 
+		p.Amount = slipBaht
 		p.TransRef = &ok.Data.TransRef
 
 		now := time.Now()
@@ -545,63 +579,63 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		return
 	}
 	if ok.Message == "duplicate_slip" && ok.Data != nil {
-    // EasySlip ส่ง amount เป็น "บาท" (float64)
-    dupBaht := ok.Data.Amount.Amount
-    dupBahtInt := int64(math.Round(dupBaht)) // เก็บ/เทียบเป็น "บาทจำนวนเต็ม"
+		// EasySlip ส่ง amount เป็น "บาท" (float64)
+		dupBaht := ok.Data.Amount.Amount
+		dupBahtInt := int64(math.Round(dupBaht)) // เก็บ/เทียบเป็น "บาทจำนวนเต็ม"
 
-    // ถ้า req.Amount == 0 แปลว่าไม่เข้มงวดยอด (ยอมรับได้ทุกยอด)
-    matched := (req.Amount == 0) || (dupBahtInt == req.Amount)
+		// ถ้า req.Amount == 0 แปลว่าไม่เข้มงวดยอด (ยอมรับได้ทุกยอด)
+		matched := (req.Amount == 0) || (dupBahtInt == req.Amount)
 
-    if !matched {
-        // duplicate แต่ "ยอดไม่ตรง" → ไม่แตะ DB ให้แจ้ง mismatch กลับ
-        c.JSON(http.StatusBadRequest, gin.H{
-            "success":        false,
-            "error":          "amount_mismatch",
-            "expectedSatang": req.Amount * 100,    // เผื่อ FE เก่ายังอ่านเป็นสตางค์
-            "expectedBaht":   float64(req.Amount), // ✅ บาทตรง ๆ
-            "slipData": gin.H{
-                "amountSatang": int64(math.Round(dupBaht * 100)),
-                "amountBaht":   dupBaht,
-                "date":         ok.Data.Date,
-                "transRef":     ok.Data.TransRef,
-            },
-        })
-        return
-    }
+		if !matched {
+			// duplicate แต่ "ยอดไม่ตรง" → ไม่แตะ DB ให้แจ้ง mismatch กลับ
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success":        false,
+				"error":          "amount_mismatch",
+				"expectedSatang": req.Amount * 100,    // เผื่อ FE เก่ายังอ่านเป็นสตางค์
+				"expectedBaht":   float64(req.Amount), // ✅ บาทตรง ๆ
+				"slipData": gin.H{
+					"amountSatang": int64(math.Round(dupBaht * 100)),
+					"amountBaht":   dupBaht,
+					"date":         ok.Data.Date,
+					"transRef":     ok.Data.TransRef,
+				},
+			})
+			return
+		}
 
-    // duplicate แต่ "ยอดตรง" → treat as success (idempotent) แล้วบันทึกลง DB (เก็บเป็นบาท)
-    if req.ContentType == "" || !strings.HasPrefix(req.ContentType, "image/") {
-        req.ContentType = "image/*"
-    }
-    p.SlipBase64 = b64 // เก็บรูปไว้เพื่อ audit
-    p.SlipContentType = req.ContentType
-    p.Amount = dupBahtInt               // ✅ เก็บเป็น "บาท"
-    p.TransRef = &ok.Data.TransRef      // (ควรมี unique index ที่ DB ในอนาคต)
+		// duplicate แต่ "ยอดตรง" → treat as success (idempotent) แล้วบันทึกลง DB (เก็บเป็นบาท)
+		if req.ContentType == "" || !strings.HasPrefix(req.ContentType, "image/") {
+			req.ContentType = "image/*"
+		}
+		p.SlipBase64 = b64 // เก็บรูปไว้เพื่อ audit
+		p.SlipContentType = req.ContentType
+		p.Amount = dupBahtInt          // ✅ เก็บเป็น "บาท"
+		p.TransRef = &ok.Data.TransRef // (ควรมี unique index ที่ DB ในอนาคต)
 
-    now := time.Now()
-    p.PaidAt = &now
-    if err := ctl.DB.Where("status_name = ?", "Paid").First(&paidStatus).Error; err == nil {
-        p.PaymentStatusID = paidStatus.ID
-    }
+		now := time.Now()
+		p.PaidAt = &now
+		if err := ctl.DB.Where("status_name = ?", "Paid").First(&paidStatus).Error; err == nil {
+			p.PaymentStatusID = paidStatus.ID
+		}
 
-    if err := ctl.DB.Save(&p).Error; err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "db_save_payment_error"})
-        return
-    }
+		if err := ctl.DB.Save(&p).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "db_save_payment_error"})
+			return
+		}
 
-    c.JSON(http.StatusOK, gin.H{
-        "success":        true,
-        "matchedAmount":  true,
-        "paymentId":      p.ID,
-        "expectedSatang": req.Amount * 100,
-        "expectedBaht":   float64(req.Amount),
-        "slipData": gin.H{
-            "amountSatang": int64(math.Round(dupBaht * 100)),
-            "amountBaht":   dupBaht,
-            "date":         ok.Data.Date,
-            "transRef":     ok.Data.TransRef,
-        },
-    })
-    return
-}
+		c.JSON(http.StatusOK, gin.H{
+			"success":        true,
+			"matchedAmount":  true,
+			"paymentId":      p.ID,
+			"expectedSatang": req.Amount * 100,
+			"expectedBaht":   float64(req.Amount),
+			"slipData": gin.H{
+				"amountSatang": int64(math.Round(dupBaht * 100)),
+				"amountBaht":   dupBaht,
+				"date":         ok.Data.Date,
+				"transRef":     ok.Data.TransRef,
+			},
+		})
+		return
+	}
 }
