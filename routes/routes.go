@@ -160,6 +160,8 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		adminRiderApps.GET("", riderAppCtl.List)
 		adminRiderApps.PATCH("/:id/approve", riderAppCtl.Approve)
 		adminRiderApps.PATCH("/:id/reject", riderAppCtl.Reject)
+
+		
 	}
 
 	// ---------- Chat ----------
@@ -197,5 +199,44 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 				paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
 			}
 		}
+	adminCtrl := controllers.NewAdminController(db)
+	
+
+	admin := r.Group("/admin")
+	admin.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		admin.GET("/dashboard", adminCtrl.Dashboard)
+		admin.GET("/restaurant", adminCtrl.Restaurants)
+		admin.GET("/report", adminCtrl.Reports)
+		admin.GET("/rider", adminCtrl.Riders)
+
+		// Promotion Management
+		admin.GET("/promotion", adminCtrl.Promotions)
+		admin.POST("/promotion", adminCtrl.CreatePromotion)
+		admin.PUT("/promotion/:id", adminCtrl.UpdatePromotion)
+		admin.DELETE("/promotion/:id", adminCtrl.DeletePromotion)
+
+		// Restaurant Applications
+		admin.GET("/restaurant-applications", rAppController.List)
+		admin.PATCH("/restaurant-applications/:id/approve", rAppController.Approve)
+		admin.PATCH("/restaurant-applications/:id/reject", rAppController.Reject)
+	}
+	userPromoService := services.NewUserPromotionService(db)
+	userPromoCtrl := controllers.NewUserPromotionController(userPromoService)
+
+	user := r.Group("/user")
+	user.Use(middlewares.AuthMiddleware(cfg.JWTSecret)) // ตรวจ JWT อย่างเดียว ไม่บังคับ role
+	{
+		user.GET("/promotions", userPromoCtrl.List)                // ดูรายการที่ user คนนั้นเก็บไว้
+		user.POST("/promotions", userPromoCtrl.SavePromotion)      // body: { promoId } หรือ { promotionId }
+		user.POST("/promotions/:id", userPromoCtrl.SavePromotion)  // หรือ path param
+		user.POST("/promotions/:id/use", userPromoCtrl.UsePromotion)
+	}
+
+	// ---------- Public Promotions (ไม่ต้องล็อกอิน) ----------
+	r.GET("/promotions", controllers.ListActivePromotions(db))
+
+
+
 
 }
