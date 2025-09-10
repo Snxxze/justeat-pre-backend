@@ -134,9 +134,9 @@ func SeedLookups() error {
 	db.FirstOrCreate(&entity.RiderStatus{}, entity.RiderStatus{StatusName: "COMPLETED"})
 
 	// Message Type
-	db.FirstOrCreate(&entity.MessageType{}, entity.MessageType{TypeName: "Text"})
-	db.FirstOrCreate(&entity.MessageType{}, entity.MessageType{TypeName: "Image"})
-	db.FirstOrCreate(&entity.MessageType{}, entity.MessageType{TypeName: "System"})
+	db.FirstOrCreate(&entity.MessageType{}, entity.MessageType{Name: "TEXT"})
+	db.FirstOrCreate(&entity.MessageType{}, entity.MessageType{Name: "IMAGE"})
+	db.FirstOrCreate(&entity.MessageType{}, entity.MessageType{Name: "SYSTEM"})
 
 	// Promotion Type
 	db.FirstOrCreate(&entity.PromoType{}, entity.PromoType{NameType: "Discount"})
