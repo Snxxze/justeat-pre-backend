@@ -17,6 +17,9 @@ import (
 	"encoding/json"
 	"math"
 	"time"
+
+	"errors"
+	"strconv"
 )
 
 var paidStatus entity.PaymentStatus
@@ -288,6 +291,96 @@ type verifySlipReq struct {
 	CheckDuplicate *bool  `json:"checkDuplicate,omitempty"`
 }
 
+// GET /api/orders/:id/payment-intent
+func (ctl *PaymentController) GetPaymentIntent(c *gin.Context) {
+  v, ok := c.Get("userId")
+  if !ok || v == nil { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+  uid, ok := v.(uint); if !ok || uid == 0 { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+
+  idStr := c.Param("id")
+  oid, err := strconv.Atoi(idStr)
+  if err != nil || oid <= 0 { c.JSON(http.StatusBadRequest, gin.H{"error":"invalid order id"}); return }
+
+  // โหลดออเดอร์
+  var ord entity.Order
+  if err := ctl.DB.First(&ord, uint(oid)).Error; err != nil {
+    status := http.StatusInternalServerError
+    if errors.Is(err, gorm.ErrRecordNotFound) { status = http.StatusNotFound }
+    c.JSON(status, gin.H{"error":"order not found"})
+    return
+  }
+  // จำกัดสิทธิ์ เจ้าของออเดอร์เท่านั้น
+  if ord.UserID != uid {
+    c.JSON(http.StatusForbidden, gin.H{"error":"forbidden"})
+    return
+  }
+
+  // โหลดร้าน + เจ้าของร้านเพื่อเอาเบอร์
+  var rest entity.Restaurant
+  if err := ctl.DB.First(&rest, ord.RestaurantID).Error; err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error":"restaurant not found"}); return
+  }
+  var owner entity.User
+  if err := ctl.DB.First(&owner, rest.UserID).Error; err != nil {
+    c.JSON(http.StatusInternalServerError, gin.H{"error":"owner not found"}); return
+  }
+
+  // NOTE: ใน schema ใช้ int64 สำหรับเงิน → แนะนำเก็บหน่วย "สตางค์" ทั้งระบบ
+  totalSatang := ord.Total
+  c.JSON(http.StatusOK, gin.H{
+    "orderId":           ord.ID,
+    "restaurantId":      rest.ID,
+    "restaurantUserId":  owner.ID,
+    "promptPayMobile":   owner.PhoneNumber,      // ใช้เบอร์ของ owner
+    "totalSatang":       totalSatang,            // ใช้ไป verify slip
+    "totalBaht":         float64(totalSatang)/100.0,
+  })
+}
+
+
+// GET /api/orders/:id/payment-summary
+func (ctl *PaymentController) GetPaymentSummary(c *gin.Context) {
+  v, ok := c.Get("userId")
+  if !ok || v == nil { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+  uid, ok := v.(uint); if !ok || uid == 0 { c.JSON(http.StatusUnauthorized, gin.H{"error":"unauthorized"}); return }
+
+  idStr := c.Param("id")
+  oid, err := strconv.Atoi(idStr)
+  if err != nil || oid <= 0 { c.JSON(http.StatusBadRequest, gin.H{"error":"invalid order id"}); return }
+
+  var ord entity.Order
+  if err := ctl.DB.First(&ord, uint(oid)).Error; err != nil {
+    status := http.StatusInternalServerError
+    if errors.Is(err, gorm.ErrRecordNotFound) { status = http.StatusNotFound }
+    c.JSON(status, gin.H{"error":"order not found"}); return
+  }
+  if ord.UserID != uid { c.JSON(http.StatusForbidden, gin.H{"error":"forbidden"}); return }
+
+  // หา payment ล่าสุดของออเดอร์นี้
+  var pay entity.Payment
+  if err := ctl.DB.Where("order_id = ?", ord.ID).Order("id desc").First(&pay).Error; err != nil {
+    status := http.StatusInternalServerError
+    if errors.Is(err, gorm.ErrRecordNotFound) { status = http.StatusNotFound }
+    c.JSON(status, gin.H{"error":"payment not found"}); return
+  }
+  if pay.PaidAt == nil {
+    c.JSON(http.StatusBadRequest, gin.H{"error":"payment not completed"}); return
+  }
+
+  txnId := ""
+  if pay.TransRef != nil { txnId = *pay.TransRef }
+
+  c.JSON(http.StatusOK, gin.H{
+    "orderCode":  fmt.Sprintf("ORD-%d", ord.ID),
+    "paidAmount": float64(pay.Amount)/100.0,
+    "currency":   "THB",
+    "method":     "PromptPay",
+    "paidAt":     pay.PaidAt, // ISO8601
+    "txnId":      txnId,
+  })
+}
+
+
 // POST /api/payments/verify-easyslip
 func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 	// 1) bind + validate
@@ -309,7 +402,7 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		return
 	}
 
-	// 2) โหลด order + payment ก่อน แล้วเช็ค already_paid “ตรงนี้”
+	// 2) โหลด order + payment ก่อน แล้วเช็ค already_paid
 	var order entity.Order
 	if err := ctl.DB.First(&order, uint(req.OrderID)).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -331,7 +424,7 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 	}
 	log.Printf("[VERIFY] order = %d paymentID = %d already_paid = %v", order.ID, p.ID, p.PaidAt != nil)
 
-	// ✅ ถ้าจ่ายแล้ว ตัดจบทันที — อย่าเรียก EasySlip
+	//  ถ้าจ่ายแล้ว ตัดจบทันที — ไม่เรียก EasySlip
 	if p.PaidAt != nil {
 		log.Printf("[UPLOAD] Order %d already paid at %v", req.OrderID, *p.PaidAt)
 		c.JSON(http.StatusConflict, gin.H{
@@ -407,7 +500,7 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		p.SlipBase64 = b64
 		p.SlipContentType = req.ContentType
 		p.Amount = slipSatang
-		p.TransRef = ok.Data.TransRef
+		p.TransRef = &ok.Data.TransRef
 
 		now := time.Now()
 		p.PaidAt = &now
@@ -439,19 +532,19 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 		return
 	}
 
-	var er easySlipErrResp
-	if err := json.NewDecoder(resp.Body).Decode(&er); err != nil {
+	var ok easySlipErrResp
+	if err := json.NewDecoder(resp.Body).Decode(&ok); err != nil {
 		c.JSON(resp.StatusCode, gin.H{"error": "easyslip_error"})
 		return
 	}
-	if er.Message == "duplicate_slip" && er.Data != nil {
+	if ok.Message == "duplicate_slip" && ok.Data != nil {
 		// ---- สลิปซ้ำ: ตัดสินจาก "ยอด" ว่าจะยอมรับเลย หรือฟ้อง mismatch ----
-		dupBaht := er.Data.Amount.Amount
+		dupBaht := ok.Data.Amount.Amount
 		dupSatang := int64(math.Round(dupBaht * 100))
 		matched := (req.Amount == 0) || (dupSatang == req.Amount)
 
 		if !matched {
-			// ❌ duplicate แต่ยอด "ไม่ตรง" → ฟ้อง amount_mismatch (ไม่แตะ DB)
+			//  duplicate แต่ยอด "ไม่ตรง" → ฟ้อง amount_mismatch (ไม่แตะ DB)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success":        false,
 				"error":          "amount_mismatch",
@@ -460,21 +553,21 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 				"slipData": gin.H{
 					"amountSatang": dupSatang,
 					"amountBaht":   dupBaht,
-					"date":         er.Data.Date,
-					"transRef":     er.Data.TransRef,
+					"date":         ok.Data.Date,
+					"transRef":     ok.Data.TransRef,
 				},
 			})
 			return
 		}
 
-		// ✅ duplicate แต่ยอด "ตรง" → treat as success (idempotent) แล้วบันทึกลง DB
+		//  duplicate แต่ยอด "ตรง" → treat as success (idempotent) แล้วบันทึกลง DB
 		if req.ContentType == "" || !strings.HasPrefix(req.ContentType, "image/") {
 			req.ContentType = "image/*"
 		}
 		p.SlipBase64 = b64 // เก็บรูปไว้เพื่อ audit
 		p.SlipContentType = req.ContentType
 		p.Amount = dupSatang
-		p.TransRef = er.Data.TransRef // แนะนำทำ unique index ที่ DB (ไว้ค่อยเพิ่ม)
+		p.TransRef = &ok.Data.TransRef // แนะนำทำ unique index ที่ DB (ไว้ค่อยเพิ่ม)
 
 		now := time.Now()
 		p.PaidAt = &now
@@ -497,14 +590,14 @@ func (ctl *PaymentController) VerifyEasySlip(c *gin.Context) {
 			"slipData": gin.H{
 				"amountSatang": dupSatang,
 				"amountBaht":   dupBaht,
-				"date":         er.Data.Date,
-				"transRef":     er.Data.TransRef,
+				"date":         ok.Data.Date,
+				"transRef":     ok.Data.TransRef,
 			},
 		})
 		return
 	}
 	c.JSON(resp.StatusCode, gin.H{
 		"success": false,
-		"error":   er.Message, // invalid_image / unauthorized / quota_exceeded / ...
+		"error":   ok.Message, // invalid_image / unauthorized / quota_exceeded / ...
 	})
 }

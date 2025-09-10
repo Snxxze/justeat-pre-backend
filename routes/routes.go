@@ -40,7 +40,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportService := services.NewReportService(reportRepo)
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	chatService := services.NewChatService(chatRepo)
-	riderAppSvc  := services.NewRiderApplicationService(riderAppRepo ,riderRepo)
+	riderAppSvc := services.NewRiderApplicationService(riderAppRepo, riderRepo)
 
 	// Order/Cart
 	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
@@ -56,7 +56,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportController := controllers.NewReportController(reportService)
 	rAppController := controllers.NewRestaurantApplicationController(rAppService)
 	chatController := controllers.NewChatController(chatService)
-	riderAppCtl  := controllers.NewRiderApplicationController(riderAppSvc)
+	riderAppCtl := controllers.NewRiderApplicationController(riderAppSvc)
 
 	orderCtl := controllers.NewOrderController(orderSvc)
 	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)
@@ -126,8 +126,8 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	riderGroup := r.Group("/rider", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
 		riderGroup.PATCH("/me/availability", riderCtl.SetAvailability) // ONLINE / OFFLINE
-		riderGroup.GET("/works/available", riderCtl.ListAvailable) 
-		
+		riderGroup.GET("/works/available", riderCtl.ListAvailable)
+
 		riderGroup.POST("/works/:orderId/accept", riderCtl.Accept)     // Preparing -> Delivering (assign งาน)
 		riderGroup.POST("/works/:orderId/complete", riderCtl.Complete) // Delivering -> Completed
 	}
@@ -136,11 +136,11 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	partnerRestApps := r.Group("/partner/restaurant-applications")
 	partnerRestApps.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
-		partnerRestApps.POST("", rAppController.Apply)                // ยื่นสมัคร
-		partnerRestApps.GET("", rAppController.List)                  // แอดมินดูรายการ
+		partnerRestApps.POST("", rAppController.Apply) // ยื่นสมัคร
+		partnerRestApps.GET("", rAppController.List)   // แอดมินดูรายการ
 	}
 
-	adminRestApps := r.Group("/partner/restaurant-applications", middlewares.AuthMiddleware(cfg.JWTSecret, "admin")) 
+	adminRestApps := r.Group("/partner/restaurant-applications", middlewares.AuthMiddleware(cfg.JWTSecret, "admin"))
 	{
 		adminRestApps.PATCH("/:id/approve", rAppController.Approve) // อนุมัติ
 		adminRestApps.PATCH("/:id/reject", rAppController.Reject)   // ปฏิเสธ
@@ -186,16 +186,20 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	}
 
 	// Payment controller
-		paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
-		//  เพิ่ม API Group
-		apiGroup := r.Group("/api")
+
+	paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
+
+	r.GET("/api/orders/:id/payment-intent", middlewares.AuthMiddleware(cfg.JWTSecret), paymentController.GetPaymentIntent)
+	r.GET("/api/orders/:id/payment-summary", middlewares.AuthMiddleware(cfg.JWTSecret), paymentController.GetPaymentSummary)
+	//  เพิ่ม API Group
+	apiGroup := r.Group("/api")
+	{
+		// Payment endpoints
+		paymentsGroup := apiGroup.Group("/payments")
+		paymentsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 		{
-			// Payment endpoints
-			paymentsGroup := apiGroup.Group("/payments")
-			paymentsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
-			{
-				paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
-			}
+			paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
 		}
+	}
 
 }
