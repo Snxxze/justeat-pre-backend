@@ -33,8 +33,6 @@ type OrderDetailWithPayment struct {
 	PaymentSummary *PaymentSummaryDTO `json:"paymentSummary,omitempty"`
 }
 
-// ---------- Orders (CRUD หลัก) ----------
-
 // POST /orders
 func (h *OrderController) Create(c *gin.Context) {
 	v, ok := c.Get("userId")
