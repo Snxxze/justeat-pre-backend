@@ -141,17 +141,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		authOrder.GET("/orders/:id", orderCtl.Detail)
 	}
 
-	// ---------- Reviews ----------
-	rv := controllers.NewReviewController(db)
-	r.GET("/restaurants/:id/reviews", rv.ListForRestaurant)
-
-	reviews := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
-	{
-		reviews.POST("/reviews", rv.Create)
-		reviews.GET("/profile/reviews", rv.ListForMe)
-		reviews.GET("/reviews/:id", rv.DetailForMe)
-	}
-
 	// ---------- Rider Applications ----------
 	riderAppRepo := repository.NewRiderApplicationRepository(db)
 	riderAppSvc  := services.NewRiderApplicationService(riderAppRepo)
@@ -175,4 +164,20 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		adminRiderApps.PATCH("/:id/approve", riderAppCtl.Approve)
 		adminRiderApps.PATCH("/:id/reject", riderAppCtl.Reject)
 	}
+
+	// ---------- Reviews ----------
+	// สร้าง controller
+	rv := controllers.NewReviewController(db)
+
+	// Public
+	r.GET("/restaurants/:id/reviews", rv.ListForRestaurant)
+
+	// Protected
+	auth := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		auth.POST("/reviews", rv.Create)
+		auth.GET("/profile/reviews", rv.ListForMe) // <- ตัวนี้ต้องชี้มาที่เมธอดที่เรามีจริง
+		auth.GET("/reviews/:id", rv.DetailForMe)
+	}
+
 }

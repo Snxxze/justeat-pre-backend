@@ -11,14 +11,12 @@ type Review struct {
 	Comments   string    `json:"comments"`
 	ReviewDate time.Time `json:"reviewDate"`
 
-	UserID uint `json:"userId"`
-	User   User `json:"-"` // preload เฉพาะตอนต้องการแสดงชื่อ user
+	UserID uint `json:"userId" gorm:"not null;index"` // ผู้รีวิว
+	User   User `json:"-"`
 
-	RestaurantID uint       `json:"restaurantId"`
-	Restaurant   Restaurant `json:"-"` // preload เฉพาะตอน detail
+	RestaurantID uint       `json:"restaurantId" gorm:"not null;index;index:idx_restaurant_date,priority:1"` // เร่ง query ตามร้าน
+	Restaurant   Restaurant `json:"-"`
 
-	OrderID uint  `json:"orderId"`
-	Order   Order `json:"-"` // preload เฉพาะตอนต้องการ
+	OrderID uint  `json:"orderId" gorm:"not null"` // 1:1 กับรีวิว
+	Order   Order `json:"-"` // preload เมื่อจำเป็น
 }
-
-
