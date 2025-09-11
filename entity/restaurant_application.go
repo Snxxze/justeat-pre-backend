@@ -10,18 +10,11 @@ type RestaurantApplication struct {
 	gorm.Model
 	Name        string `json:"name"`
 	Address     string `json:"address"`
-	Phone 			string `json:"phone"`
 	Description string `json:"description"`
-	Picture     string `json:"pictureBase64,omitempty" gorm:"column:picture_base64;type:longtext"`
-
-	OpeningTime string `json:"openingTime"`
-	ClosingTime string `json:"closingTime"`
+	Picture     string `json:"picture"`
 
 	RestaurantCategoryID uint `json:"restaurantCategoryId"`
-	RestaurantCategory   RestaurantCategory `json:"restaurantCategory" gorm:"foreignKey:RestaurantCategoryID"`
-
 	OwnerUserID          uint `json:"ownerUserId"` // คนยื่น (เจ้าของในอนาคต)
-	OwnerUser   User   `json:"ownerUser"` // preload เอามาโชว์
 
 	// pending / approved / rejected
 	Status string `gorm:"not null;default:pending" json:"status"`

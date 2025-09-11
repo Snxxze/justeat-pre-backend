@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"backend/services"
+	"backend/utils"
+	"io"
 	"net/http"
 	"strings"
 
@@ -38,7 +40,14 @@ func (a *AuthController) Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"ok": true, "user": user})
+	c.JSON(http.StatusCreated, gin.H{
+		"id":          user.ID,
+		"email":       user.Email,
+		"firstName":   user.FirstName,
+		"lastName":    user.LastName,
+		"phoneNumber": user.PhoneNumber,
+		"role":        user.Role,
+	})
 }
 
 // POST /auth/login
@@ -62,7 +71,16 @@ func (a *AuthController) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"ok":    true,
 		"token": token,
-		"user":  user,
+		"user": gin.H{
+			"id":          user.ID,
+			"email":       user.Email,
+			"firstName":   user.FirstName,
+			"lastName":    user.LastName,
+			"phoneNumber": user.PhoneNumber,
+			"address":     user.Address,
+			"role":        user.Role,
+			"avatarUrl":	 utils.BuildAvatarURL(user),
+		},
 	})
 }
 
@@ -81,11 +99,24 @@ func (a *AuthController) Me(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true, "user": user})
+	c.JSON(http.StatusOK, gin.H{
+		"ok": true,
+		"user": gin.H{
+			"id":          user.ID,
+			"email":       user.Email,
+			"firstName":   user.FirstName,
+			"lastName":    user.LastName,
+			"phoneNumber": user.PhoneNumber,
+			"address":     user.Address,
+			"role":        user.Role,
+			"avatarUrl":	 utils.BuildAvatarURL(user),
+		},
+	})
 }
 
 // PATCH /auth/me
 func (a *AuthController) UpdateMe(c *gin.Context) {
+	// ดึง userId จาก context ที่ middleware set ไว้
 	userIDAny, exists := c.Get("userId")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -93,6 +124,7 @@ func (a *AuthController) UpdateMe(c *gin.Context) {
 	}
 	userID := userIDAny.(uint)
 
+	// อ่านข้อมูลจาก body
 	var req struct {
 		FirstName   *string `json:"firstName"`
 		LastName    *string `json:"lastName"`
@@ -104,6 +136,7 @@ func (a *AuthController) UpdateMe(c *gin.Context) {
 		return
 	}
 
+	// เตรียม map ของ field ที่จะอัปเดต
 	updates := map[string]any{}
 	if req.FirstName != nil {
 		updates["first_name"] = strings.TrimSpace(*req.FirstName)
@@ -118,74 +151,107 @@ func (a *AuthController) UpdateMe(c *gin.Context) {
 		updates["address"] = strings.TrimSpace(*req.Address)
 	}
 
+	// ถ้าไม่มี field ให้แก้ไข → โหลด user เดิมกลับมา
+	if len(updates) == 0 {
+		user, err := a.authService.GetProfile(userID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"user": user})
+		return
+	}
+
+	// อัปเดตใน DB
 	user, err := a.authService.UpdateProfile(userID, updates)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot update profile"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": user})
+	// ตอบกลับข้อมูลใหม่
+	c.JSON(http.StatusOK, gin.H{
+		"user": gin.H{
+			"id":          user.ID,
+			"email":       user.Email,
+			"firstName":   user.FirstName,
+			"lastName":    user.LastName,
+			"phoneNumber": user.PhoneNumber,
+			"address":     user.Address,
+			"role":        user.Role,
+			"avatarUrl":   utils.BuildAvatarURL(user),
+		},
+	})
 }
 
 // POST /auth/me/avatar
 func (a *AuthController) UploadAvatar(c *gin.Context) {
-	userIDAny, _ := c.Get("userId")
+	userIDAny, exists := c.Get("userId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 	userID := userIDAny.(uint)
 
-	var req struct {
-		AvatarBase64 string `json:"avatarBase64" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid base64"})
+	fh, err := c.FormFile("avatar")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "avatar is required"})
 		return
 	}
 
-	if err := a.authService.UploadAvatarBase64(userID, req.AvatarBase64); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	file, err := fh.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot open uploaded file"})
+		return
+	}
+	defer file.Close()
+
+	// จำกัดขนาด (5MB)
+	const masSize = 5 << 20
+	lr := &io.LimitedReader{R: file, N: masSize + 1}
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "read error"})
+		return
+	}
+	if int64(len(data)) > masSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "file too large"})
 		return
 	}
 
-	user, _ := a.authService.GetProfile(userID)
-	c.JSON(http.StatusOK, gin.H{"ok": true, "user": user})
+	ct := http.DetectContentType(data)
+	if !strings.HasPrefix(ct, "image/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "db error"})
+		return
+	}
+
+	// เรียก service ไปบันทึก
+	if err := a.authService.UploadAvatar(userID, data, ct); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // GET /auth/me/avatar
 func (a *AuthController) GetAvatar(c *gin.Context) {
-	userIDAny, _ := c.Get("userId")
+	userIDAny, exists := c.Get("userId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 	userID := userIDAny.(uint)
 
-	b64, err := a.authService.GetAvatarBase64(userID)
+	u, err := a.authService.GetAvatar(userID)
 	if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
-			return
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
 	}
-	if b64 == "" {
-			// ✅ ส่ง default แทน ไม่ต้อง 404
-			c.JSON(http.StatusOK, gin.H{"avatarBase64": "https://i.pravatar.cc/150?img=3"})
-			return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"avatarBase64": b64})
-}
-
-// GET /auth/me/restaurant
-func (a *AuthController) MeRestaurant(c *gin.Context) {
-	userID := c.GetUint("userId")
-	role := c.GetString("role")
-
-	if role != "owner" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: not an owner"})
-			return
+	if len(u.Avatar) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no avatar"})
+		return
 	}
 
-	restaurant, err := a.authService.GetRestaurantByUserID(userID)
-	if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "restaurant not found"})
-			return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-			"ok": true,
-			"restaurant": restaurant,
-	})
+	c.Data(http.StatusOK, u.AvatarType, u.Avatar)
 }

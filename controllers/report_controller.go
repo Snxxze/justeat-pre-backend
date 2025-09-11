@@ -96,3 +96,37 @@ func (rc *ReportController) GetReportByID(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "report": report})
 }
+
+
+
+// GET /admin/reports → สำหรับแอดมินดึงรายงานทั้งหมด
+func (rc *ReportController) ListAllReports(c *gin.Context) {
+    var reports []entity.Report
+    if err := rc.reportService.FindAllReports(&reports); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot fetch all reports"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"ok": true, "reports": reports})
+}
+
+
+// PATCH /admin/reports/:id/status
+func (rc *ReportController) UpdateReportStatus(c *gin.Context) {
+    id := c.Param("id")
+
+    var req struct {
+        Status string `json:"status"`
+    }
+
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+        return
+    }
+
+    if err := rc.reportService.UpdateStatus(id, req.Status); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{"ok": true, "message": "status updated"})
+}

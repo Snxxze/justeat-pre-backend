@@ -9,10 +9,7 @@ type Restaurant struct {
 	Name        string `json:"name"`
 	Address     string `json:"address"`
 	Description string `json:"description"`
-	Picture     string `json:"pictureBase64,omitempty" gorm:"column:picture_base64;type:longtext"`
-
-	OpeningTime string `json:"openingTime"`
-	ClosingTime string `json:"closingTime"`
+	Picture     string `json:"picture"`
 
 	RestaurantCategoryID uint               `json:"restaurantCategoryId"`
 	RestaurantCategory   RestaurantCategory `json:"-"` // preload เฉพาะตอนต้องการ

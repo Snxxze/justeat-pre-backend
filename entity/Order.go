@@ -10,7 +10,6 @@ type Order struct {
 	Discount    int64 `json:"discount"`
 	DeliveryFee int64 `json:"deliveryFee"`
 	Total       int64 `json:"total"`
-	Address string `json:"address" gorm:"type:text"`
 
 	UserID uint `json:"userId"`
 	User   User `json:"-"` // preload เฉพาะตอนต้องการ user detail

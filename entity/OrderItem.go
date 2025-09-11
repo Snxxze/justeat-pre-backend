@@ -15,5 +15,7 @@ type OrderItem struct {
 
 	MenuID uint `json:"menuId"`
 	Menu   Menu `json:"-"` // preload เฉพาะตอนต้องการชื่อเมนู
+
+	Selections []OrderItemSelection `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"selections"`
 }
 

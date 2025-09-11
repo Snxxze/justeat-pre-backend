@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"backend/configs"
+	"backend/entity"
 	"backend/middlewares"
 	"backend/routes"
 
@@ -14,15 +15,14 @@ import (
 func main() {
 	cfg := configs.LoadConfig()
 
-	log.Printf("[MAIN] EasySlip API Key present=%v len=%d", cfg.EasySlipAPIKey != "", len(cfg.EasySlipAPIKey))
-    
-    if cfg.EasySlipAPIKey == "" {
-        log.Fatal("EASYSLIP_API_KEY is required but not found in environment")
-    }
-
 	// DB
 	configs.ConnectionDB()
 	db := configs.DB()
+
+	// join table (many2many Menu<->Option)
+	if err := db.SetupJoinTable(&entity.Menu{}, "Options", &entity.MenuOption{}); err != nil {
+		log.Fatalf("setup join table failed: %v", err)
+	}
 
 	// migrate
 	configs.SetupDatabase()
@@ -36,10 +36,18 @@ func main() {
 
 	// HTTP
 	r := gin.Default()
+
+	// ✅ Enable CORS
 	r.Use(middlewares.CORSMiddleware())
+
+	// ✅ Serve uploaded files (e.g. report pictures)
+	r.Static("/uploads", "./uploads") // <= ใส่ตรงนี้
+
+	// ✅ Register API routes
 	routes.RegisterRoutes(r, db, cfg)
 
-	port := configs.LoadConfig().Port
+	// ✅ Start server
+	port := cfg.Port
 	addr := fmt.Sprintf(":%s", port)
 	log.Println("🚀 Server running at", addr)
 	if err := r.Run(addr); err != nil {

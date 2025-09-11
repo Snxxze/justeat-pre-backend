@@ -22,4 +22,9 @@ type Report struct {
 
 	AdminID uint  `json:"adminId"`
 	Admin   Admin `json:"-"` // preload เฉพาะตอนต้องการข้อมูล admin
+
+
+	
+	// ✅ เพิ่มสถานะ
+	Status string `json:"status" gorm:"type:varchar(50);default:'pending'"`
 }
