@@ -37,7 +37,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// Services
 	// ------------------------------------------------------------
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
-	restService := services.NewRestaurantService(restRepo)
 	menuService := services.NewMenuService(menuRepo)
 	reportService := services.NewReportService(reportRepo)
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
@@ -58,18 +57,18 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// Controllers
 	// ------------------------------------------------------------
 	authController := controllers.NewAuthController(authService)
-	restController := controllers.NewRestaurantController(restService)
 	menuController := controllers.NewMenuController(menuService)
 	reportController := controllers.NewReportController(reportService)
 	rAppController := controllers.NewRestaurantApplicationController(rAppService)
 	riderAppCtl := controllers.NewRiderApplicationController(riderAppSvc)
-
+	
 	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)
 	cartCtl := controllers.NewCartController(cartSvc)
 	riderCtl := controllers.NewRiderController(riderSvc)
 	chatController := controllers.NewChatController(chatService)
 	reviewCtl := controllers.NewReviewController(db)
 	orderCtl := controllers.NewOrderController(db)
+	restController := controllers.NewRestaurantController(db)
 	
 	userPromoCtrl := controllers.NewUserPromotionController(userPromoService)
 	adminCtrl := controllers.NewAdminController(db)
