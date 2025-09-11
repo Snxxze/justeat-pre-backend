@@ -158,3 +158,29 @@ func (s *RiderService) ListAvailable() ([]repository.AvailableOrderRow, error) {
 	if err := s.initIDs(); err != nil { return nil, err }
 	return s.WorkRepo.ListAvailable(s.OrderPreparingID, 50)
 }
+
+func (s *RiderService) GetStatus(userID uint) (map[string]any, error) {
+    if err := s.initIDs(); err != nil {
+        return nil, err
+    }
+    r, err := s.RiderRepo.GetByUserID(userID)
+    if err != nil {
+        return nil, err
+    }
+    return map[string]any{
+        "status":    r.RiderStatus.StatusName,     // ✅ ได้ชื่อจริง เช่น "ONLINE"
+        "isWorking": r.RiderStatusID != s.StatusOfflineID,
+    }, nil
+}
+
+
+func (s *RiderService) GetCurrentWork(userID uint) (*repository.AvailableOrderRow, error) {
+    if err := s.initIDs(); err != nil {
+        return nil, err
+    }
+    r, err := s.RiderRepo.GetByUserID(userID)
+    if err != nil {
+        return nil, err
+    }
+    return s.WorkRepo.FindActiveWork(r.ID)
+}

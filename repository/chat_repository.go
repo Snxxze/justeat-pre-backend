@@ -1,4 +1,3 @@
-// repository/chat_repository.go
 package repository
 
 import (
@@ -12,25 +11,40 @@ type ChatRepository struct {
 }
 
 func NewChatRepository(db *gorm.DB) *ChatRepository {
-	return &ChatRepository{db}
+	return &ChatRepository{db: db}
 }
 
-// สร้างห้องแชทใหม่ (เชื่อมกับ order)
-func (r *ChatRepository) CreateRoom(room *entity.ChatRoom) error {
-	return r.db.Create(room).Error
+// ---------------------- Rooms ----------------------
+
+// หา/สร้าง ChatRoom ตาม orderID
+func (r *ChatRepository) FindOrCreateRoom(orderID uint) (*entity.ChatRoom, error) {
+	var room entity.ChatRoom
+	err := r.db.Where("order_id = ?", orderID).First(&room).Error
+	if err == gorm.ErrRecordNotFound {
+		room = entity.ChatRoom{OrderID: orderID}
+		if err := r.db.Create(&room).Error; err != nil {
+			return nil, err
+		}
+		return &room, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &room, nil
 }
 
-// ดึงห้องแชททั้งหมดของ user (ผ่าน order)
-func (r *ChatRepository) FindRoomsByUser(userID uint) ([]entity.ChatRoom, error) {
-	var rooms []entity.ChatRoom
-	err := r.db.
-		Preload("Order").
-		Where("order_id IN (?)", r.db.Table("orders").Select("id").Where("user_id = ?", userID)).
-		Find(&rooms).Error
-	return rooms, err
+// ดึงห้องตาม roomID
+func (r *ChatRepository) FindRoomByID(roomID uint) (*entity.ChatRoom, error) {
+	var room entity.ChatRoom
+	if err := r.db.First(&room, roomID).Error; err != nil {
+		return nil, err
+	}
+	return &room, nil
 }
 
-// ดึงข้อความในห้อง
+// ---------------------- Messages ----------------------
+
+// ดึงข้อความทั้งหมดในห้อง
 func (r *ChatRepository) FindMessagesByRoom(roomID uint) ([]entity.Message, error) {
 	var msgs []entity.Message
 	err := r.db.
@@ -42,7 +56,19 @@ func (r *ChatRepository) FindMessagesByRoom(roomID uint) ([]entity.Message, erro
 	return msgs, err
 }
 
-// ส่งข้อความใหม่
+// บันทึกข้อความใหม่
 func (r *ChatRepository) CreateMessage(msg *entity.Message) error {
 	return r.db.Create(msg).Error
 }
+
+// ---------------------- Orders ----------------------
+
+// ดึง order พร้อม RiderWork เพื่อใช้ตรวจสิทธิ์
+func (r *ChatRepository) FindOrderWithRider(orderID uint) (*entity.Order, error) {
+    var order entity.Order
+    err := r.db.
+        Preload("RiderWork.Rider.User"). // ✅ preload ให้ Rider มี User
+        First(&order, orderID).Error
+    return &order, err
+}
+

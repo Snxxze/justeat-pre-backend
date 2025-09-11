@@ -19,7 +19,10 @@ func (r *RiderRepository) FindByUserID(userID uint) (*entity.Rider, error) {
 
 func (r *RiderRepository) GetByUserID(userID uint) (*entity.Rider, error) {
 	var rd entity.Rider
-	if err := r.DB.Where("user_id = ?", userID).First(&rd).Error; err != nil {
+	if err := r.DB.
+		Preload("RiderStatus").
+		Where("user_id = ?", userID).
+		First(&rd).Error; err != nil {
 		return nil, err
 	}
 	return &rd, nil
@@ -40,7 +43,7 @@ func (r *RiderRepository) HasActiveWork(riderID uint) (bool, error) {
 	return cnt > 0, nil
 }
 
-//  หา id ของ RiderStatus จากชื่อ (ใช้ตอน initIDs)
+// หา id ของ RiderStatus จากชื่อ (ใช้ตอน initIDs)
 func (r *RiderRepository) GetStatusIDByName(name string) (uint, error) {
 	var row struct{ ID uint }
 	if err := r.DB.Model(&entity.RiderStatus{}).
@@ -52,5 +55,3 @@ func (r *RiderRepository) GetStatusIDByName(name string) (uint, error) {
 	}
 	return row.ID, nil
 }
-
-

@@ -77,3 +77,31 @@ func (rw *RiderWorkRepository) ListAvailable(preparingStatusID uint, limit int) 
 
 	return rows, err
 }
+
+func (rw *RiderWorkRepository) FindActiveWork(riderID uint) (*AvailableOrderRow, error) {
+    var row AvailableOrderRow
+    err := rw.DB.
+        Table("rider_works rw").
+        Select(`
+          o.id,
+          o.created_at,
+          r.name AS restaurant_name,
+          CONCAT(u.first_name, ' ', u.last_name) AS customer_name,
+          o.address,
+          o.total
+        `).
+        Joins("JOIN orders o ON o.id = rw.order_id").
+        Joins("JOIN users u ON u.id = o.user_id").
+        Joins("JOIN restaurants r ON r.id = o.restaurant_id").
+        Where("rw.rider_id = ? AND rw.finish_at IS NULL", riderID).
+        Limit(1).
+        Scan(&row).Error
+
+    if err != nil {
+        return nil, err
+    }
+    if row.ID == 0 {
+        return nil, nil
+    }
+    return &row, nil
+}

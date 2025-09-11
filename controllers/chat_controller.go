@@ -1,66 +1,129 @@
-// controllers/chat_controller.go
 package controllers
 
 import (
+	"backend/services"
 	"net/http"
 	"strconv"
-
-	"backend/services"
 
 	"github.com/gin-gonic/gin"
 )
 
 type ChatController struct {
-	service *services.ChatService
+	Service *services.ChatService
 }
 
 func NewChatController(s *services.ChatService) *ChatController {
-	return &ChatController{s}
+	return &ChatController{Service: s}
 }
 
-// GET /chatrooms (ห้องแชทของ user)
-func (c *ChatController) ListRooms(ctx *gin.Context) {
-	// สมมติได้ userID จาก JWT
-	userID := ctx.GetUint("userID")
-
-	rooms, err := c.service.GetRoomsByUser(userID)
+// GET /orders/:id/chatroom
+func (ctl *ChatController) GetOrCreateRoom(c *gin.Context) {
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
 		return
 	}
-	ctx.JSON(http.StatusOK, rooms)
-}
 
-// GET /chatrooms/:id/messages
-func (c *ChatController) ListMessages(ctx *gin.Context) {
-	roomID, _ := strconv.Atoi(ctx.Param("id"))
+	uidAny, _ := c.Get("userId")
+	userID := uidAny.(uint)
 
-	msgs, err := c.service.GetMessages(uint(roomID))
+	// ✅ ตรวจสิทธิ์ก่อน
+	ok, err := ctl.Service.CanAccessRoom(userID, uint(orderID))
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusOK, msgs)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+
+	room, err := ctl.Service.GetOrCreateRoom(uint(orderID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"room": room})
 }
 
-// POST /chatrooms/:id/messages
-func (c *ChatController) SendMessage(ctx *gin.Context) {
-	roomID, _ := strconv.Atoi(ctx.Param("id"))
-	userID := ctx.GetUint("userID")
+// GET /orders/:id/messages
+func (ctl *ChatController) GetMessages(c *gin.Context) {
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+		return
+	}
+
+	uidAny, _ := c.Get("userId")
+	userID := uidAny.(uint)
+
+	// ✅ ตรวจสิทธิ์ก่อน
+	ok, err := ctl.Service.CanAccessRoom(userID, uint(orderID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+
+	room, err := ctl.Service.GetOrCreateRoom(uint(orderID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	msgs, err := ctl.Service.GetMessages(room.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"messages": msgs})
+}
+
+// POST /orders/:id/messages
+func (ctl *ChatController) SendMessage(c *gin.Context) {
+	orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+		return
+	}
 
 	var req struct {
-		Body string `json:"body"`
-		Type uint   `json:"typeMessageId"`
+		Body          string `json:"body"`
+		TypeMessageID uint   `json:"typeMessageId"`
 	}
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
-	msg, err := c.service.SendMessage(uint(roomID), userID, req.Type, req.Body)
+	uidAny, _ := c.Get("userId")
+	userID := uidAny.(uint)
+
+	// ✅ ตรวจสิทธิ์ก่อน
+	ok, err := ctl.Service.CanAccessRoom(userID, uint(orderID))
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusCreated, msg)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
+		return
+	}
+
+	room, err := ctl.Service.GetOrCreateRoom(uint(orderID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	msg, err := ctl.Service.SendMessage(room.ID, userID, req.TypeMessageID, req.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": msg})
 }

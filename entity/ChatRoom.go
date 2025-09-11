@@ -6,11 +6,11 @@ import (
 
 type ChatRoom struct {
 	gorm.Model
-	OrderID uint `json:"orderId"`
+	OrderID uint `json:"orderId" gorm:"uniqueIndex"`
 
 	// preload เฉพาะเวลาต้องการรายละเอียด order
 	Order Order `json:"-"`
 
 	// preload messages เฉพาะ endpoint ที่ต้องการ (เช่น /chatrooms/:id/messages)
-	Messages []Message `gorm:"foreignKey:RoomID;references:ID" json:"-"`
+	Messages []Message `gorm:"foreignKey:RoomID;references:ID" json:"messages,omitempty"`
 }
