@@ -6,8 +6,6 @@ import (
 
 type PromoType struct {
 	gorm.Model
-	NameType string `gorm:"size:100;uniqueIndex;not null" json:"nameType"`
-
-	// ไม่จำเป็นต้องส่ง relation ทุกครั้ง
-	Promotions []Promotion `json:"-"`
+	NameType   string      `gorm:"type:text;not null;default:''column:name_type" json:"nameType"`
+	Promotions []Promotion `gorm:"foreignKey:PromoTypeID"`
 }

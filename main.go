@@ -23,6 +23,7 @@ func main() {
 	// DB
 	configs.ConnectionDB()
 	db := configs.DB()
+	
 
 	// migrate
 	configs.SetupDatabase()
@@ -37,6 +38,7 @@ func main() {
 	// HTTP
 	r := gin.Default()
 	r.Use(middlewares.CORSMiddleware())
+	r.Static("/uploads", "./uploads")
 	routes.RegisterRoutes(r, db, cfg)
 
 	port := configs.LoadConfig().Port

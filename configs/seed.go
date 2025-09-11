@@ -25,15 +25,30 @@ func SeedAdmin() error {
 		return nil
 	}
 
+	// --- สร้าง User ---
 	hash, _ := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
-	admin := entity.User{
+	user := entity.User{
 		Email:     email,
 		Password:  string(hash),
 		FirstName: "Admin",
 		LastName:  "Seed",
 		Role:      "admin",
 	}
-	return db.Create(&admin).Error
+	if err := db.Create(&user).Error; err != nil {
+		return err
+	}
+
+	// --- สร้าง Admin ---
+	admin := entity.Admin{
+		Name:   "System Admin",
+		UserID: user.ID,
+	}
+	if err := db.Create(&admin).Error; err != nil {
+		return err
+	}
+
+	log.Println("✅ seeded admin:", email)
+	return nil
 }
 
 // Seed ค่า lookup/status เริ่มต้น

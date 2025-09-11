@@ -9,7 +9,7 @@ type Promotion struct {
 	gorm.Model
 	PromoCode   string     `gorm:"size:50;uniqueIndex;not null" json:"promoCode"`
 	PromoDetail string     `json:"promoDetail"`
-	IsValues    bool       `json:"isValues"`
+	Values      uint       `json:"Values"`
 	MinOrder    int64      `json:"minOrder"`
 	StartAt     *time.Time `json:"startAt,omitempty"`
 	EndAt       *time.Time `json:"endAt,omitempty"`

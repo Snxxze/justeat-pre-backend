@@ -41,6 +41,8 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportService := services.NewReportService(reportRepo)
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	riderAppSvc := services.NewRiderApplicationService(riderAppRepo, riderRepo)
+	
+	userPromoService := services.NewUserPromotionService(db)
 
 	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
 	cartSvc := services.NewCartService(db, cartRepo, orderRepo)
@@ -66,11 +68,14 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	cartCtl := controllers.NewCartController(cartSvc)
 	riderCtl := controllers.NewRiderController(riderSvc)
 	chatController := controllers.NewChatController(chatService)
+	reviewCtl := controllers.NewReviewController(db)
+	
+	userPromoCtrl := controllers.NewUserPromotionController(userPromoService)
+	adminCtrl := controllers.NewAdminController(db)
 
 	// ------------------------------------------------------------
 	// Routes
 	// ------------------------------------------------------------
-
 	// ---------- Auth ----------
 	authGroup := r.Group("/auth")
 	{
@@ -190,5 +195,44 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		{
 			paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
 		}
+	}
+
+	// ---------------- admin ---------------
+	admin := r.Group("/admin")
+	admin.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		admin.GET("/dashboard", adminCtrl.Dashboard)
+		admin.GET("/restaurant", adminCtrl.Restaurants)
+		admin.GET("/rider", adminCtrl.Riders)
+
+		admin.GET("/reports", reportController.ListAllReports)
+		admin.PATCH("reports/:id/status", reportController.UpdateReportStatus)
+
+		// Promotion Management
+		admin.GET("/promotion", adminCtrl.Promotions)
+		admin.POST("/promotion", adminCtrl.CreatePromotion)
+		admin.PUT("/promotion/:id", adminCtrl.UpdatePromotion)
+		admin.DELETE("/promotion/:id", adminCtrl.DeletePromotion)
+	}
+
+	// ----------------- user -----------------
+	user := r.Group("/user")
+	user.Use(middlewares.AuthMiddleware(cfg.JWTSecret)) // ตรวจ JWT อย่างเดียว ไม่บังคับ role
+	{
+		user.GET("/promotions", userPromoCtrl.List)                // ดูรายการที่ user คนนั้นเก็บไว้
+		user.POST("/promotions", userPromoCtrl.SavePromotion)      // body: { promoId } หรือ { promotionId }
+		user.POST("/promotions/:id", userPromoCtrl.SavePromotion)  // หรือ path param
+		user.POST("/promotions/:id/use", userPromoCtrl.UsePromotion)
+	}
+
+	// ---------- Public 
+	r.GET("/promotions", controllers.ListActivePromotions(db))
+	r.GET("/restaurants/:id/reviews", reviewCtl.ListForRestaurant)
+
+	auth := r.Group("/", middlewares.AuthMiddleware(cfg.JWTSecret))
+	{
+		auth.POST("/reviews", reviewCtl.Create)
+		auth.GET("/profile/reviews", reviewCtl.ListForMe)
+		auth.GET("/reviews/:id", reviewCtl.DetailForMe)
 	}
 }
