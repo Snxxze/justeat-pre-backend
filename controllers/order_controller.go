@@ -12,13 +12,14 @@ import (
 	"gorm.io/gorm"
 )
 
-type OrderController struct{ Svc *services.OrderService }
-
-func NewOrderController(s *services.OrderService) *OrderController {
-	return &OrderController{Svc: s}
+type OrderController struct {
+	OrderService *services.OrderService
 }
 
-// ---------- DTOs ----------
+func NewOrderController(s *services.OrderService) *OrderController {
+	return &OrderController{OrderService: s}
+}
+
 type PaymentSummaryDTO struct {
 	MethodID   uint       `json:"methodId"`
 	MethodName string     `json:"methodName"`
@@ -33,26 +34,28 @@ type OrderDetailWithPayment struct {
 	PaymentSummary *PaymentSummaryDTO `json:"paymentSummary,omitempty"`
 }
 
+// ---------- Orders ----------
+
 // POST /orders
 func (h *OrderController) Create(c *gin.Context) {
-	v, ok := c.Get("userId")
-	if !ok || v == nil {
+	userVal, ok := c.Get("userId")
+	if !ok || userVal == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	uid, ok := v.(uint)
-	if !ok || uid == 0 {
+	userID, ok := userVal.(uint)
+	if !ok || userID == 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	var req services.CreateOrderReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var orderReq services.CreateOrderReq
+	if err := c.ShouldBindJSON(&orderReq); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	res, err := h.Svc.Create(uid, &req)
+	orderRes, err := h.OrderService.Create(userID, &orderReq)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -61,51 +64,51 @@ func (h *OrderController) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, res) // { id, total }
+	c.JSON(http.StatusCreated, orderRes) // { id, total }
 }
 
 // GET /profile/orders?limit=50
 func (h *OrderController) ListForMe(c *gin.Context) {
-	v, ok := c.Get("userId")
-	if !ok || v == nil {
+	userVal, ok := c.Get("userId")
+	if !ok || userVal == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	uid, ok := v.(uint)
-	if !ok || uid == 0 {
+	userID, ok := userVal.(uint)
+	if !ok || userID == 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	items, err := h.Svc.ListForUser(uid, limit)
+	orderList, err := h.OrderService.ListForUser(userID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, gin.H{"items": orderList})
 }
 
-// GET /orders/:id  (?withPayment=1 → แนบ payment summary)
+// GET /orders/:id (?withPayment=1 → แนบ payment summary)
 func (h *OrderController) Detail(c *gin.Context) {
-	v, ok := c.Get("userId")
-	if !ok || v == nil {
+	userVal, ok := c.Get("userId")
+	if !ok || userVal == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	uid, ok := v.(uint)
-	if !ok || uid == 0 {
+	userID, ok := userVal.(uint)
+	if !ok || userID == 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil || id <= 0 {
+	orderID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || orderID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
 		return
 	}
 
-	out, err := h.Svc.DetailForUser(uid, uint(id))
+	orderDetail, err := h.OrderService.DetailForUser(userID, uint(orderID))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -116,15 +119,15 @@ func (h *OrderController) Detail(c *gin.Context) {
 	}
 
 	withPayment := c.DefaultQuery("withPayment", "0") == "1"
-	resp := OrderDetailWithPayment{OrderDetail: out}
+	resp := OrderDetailWithPayment{OrderDetail: orderDetail}
 	if withPayment {
-		if ps, err := h.Svc.PaymentSummaryForOrder(uid, uint(id)); err == nil && ps != nil {
+		if paymentSummary, err := h.OrderService.PaymentSummaryForOrder(userID, uint(orderID)); err == nil && paymentSummary != nil {
 			resp.PaymentSummary = &PaymentSummaryDTO{
-				MethodID:   ps.MethodID,
-				MethodName: ps.MethodName,
-				StatusID:   ps.StatusID,
-				StatusName: ps.StatusName,
-				PaidAt:     ps.PaidAt,
+				MethodID:   paymentSummary.MethodID,
+				MethodName: paymentSummary.MethodName,
+				StatusID:   paymentSummary.StatusID,
+				StatusName: paymentSummary.StatusName,
+				PaidAt:     paymentSummary.PaidAt,
 			}
 		}
 	}
@@ -135,24 +138,24 @@ func (h *OrderController) Detail(c *gin.Context) {
 
 // POST /orders/checkout-from-cart
 func (h *OrderController) CheckoutFromCart(c *gin.Context) {
-	v, ok := c.Get("userId")
-	if !ok || v == nil {
+	userVal, ok := c.Get("userId")
+	if !ok || userVal == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
-	uid, ok := v.(uint)
-	if !ok || uid == 0 {
+	userID, ok := userVal.(uint)
+	if !ok || userID == 0 {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	var req services.CheckoutFromCartReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var checkoutReq services.CheckoutFromCartReq
+	if err := c.ShouldBindJSON(&checkoutReq); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	res, err := h.Svc.CreateFromCart(uid, &req)
+	checkoutRes, err := h.OrderService.CreateFromCart(userID, &checkoutReq)
 	if err != nil {
 		switch err.Error() {
 		case "cart is empty", "cart has no restaurant":
@@ -162,5 +165,5 @@ func (h *OrderController) CheckoutFromCart(c *gin.Context) {
 		}
 		return
 	}
-	c.JSON(http.StatusCreated, res)
+	c.JSON(http.StatusCreated, checkoutRes)
 }
