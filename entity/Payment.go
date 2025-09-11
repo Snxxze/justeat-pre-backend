@@ -8,7 +8,7 @@ import (
 
 type Payment struct {
 	gorm.Model
-	Amount          int64      `json:"amount"` // หน่วยสตางค์
+	Amount          int64      `json:"amount"` 
 	PaidAt          *time.Time `json:"paidAt,omitempty"`
 	SlipContentType string     `gorm:"type:varchar(64)" json:"slipContentType,omitempty"`
 	SlipBase64      string     `gorm:"type:longtext" json:"slipBase64,omitempty"` //เก็บ base64

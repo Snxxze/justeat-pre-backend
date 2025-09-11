@@ -4,6 +4,7 @@ import (
 	"backend/entity"
 	"backend/repository"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -22,7 +23,7 @@ type OrderService struct {
 	CartRepo *repository.CartRepository
 
 	RestRepo *repository.RestaurantRepository
-	Status StatusIDs
+	Status   StatusIDs
 }
 
 func NewOrderService(
@@ -60,6 +61,15 @@ type CreateOrderRes struct {
 type CheckoutFromCartReq struct {
 	Address       string `json:"address" binding:"required"`
 	PaymentMethod string `json:"paymentMethod" binding:"omitempty,oneof='PromptPay' 'Cash on Delivery'"`
+}
+
+// ======== เพิ่ม DTO สำหรับสรุปการชำระเงิน ========
+type PaymentSummary struct {
+	MethodID   uint       `json:"methodId"`
+	MethodName string     `json:"methodName"`
+	StatusID   uint       `json:"statusId"`
+	StatusName string     `json:"statusName"`
+	PaidAt     *time.Time `json:"paidAt,omitempty"`
 }
 
 // ----- Create -----
@@ -110,19 +120,18 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 	}
 
 	discount := int64(0)
-	deliveryFee := int64(2)
+	deliveryFee := int64(0)
 	total := subtotal - discount + deliveryFee
-	const pendingStatusID uint = 1
 
 	var out CreateOrderRes
 	err = s.DB.Transaction(func(tx *gorm.DB) error {
 		order := entity.Order{
-			Subtotal: subtotal, 
-			Discount: discount,
-			DeliveryFee: deliveryFee, 
-			Total: total,
-			UserID: userID, 
-			RestaurantID: req.RestaurantID, 
+			Subtotal:     subtotal,
+			Discount:     discount,
+			DeliveryFee:  deliveryFee,
+			Total:        total,
+			UserID:       userID,
+			RestaurantID: req.RestaurantID,
 			OrderStatusID: s.Status.Pending,
 		}
 		if err := s.Repo.CreateOrder(tx, &order); err != nil {
@@ -179,6 +188,36 @@ func (s *OrderService) DetailForUser(userID, orderID uint) (*OrderDetail, error)
 	}, nil
 }
 
+// ======== เมธอดดึงสรุปการชำระเงินของออเดอร์ (payment ล่าสุด) ========
+func (s *OrderService) PaymentSummaryForOrder(userID, orderID uint) (*PaymentSummary, error) {
+	// เช็คสิทธิ์เข้าถึงออเดอร์ก่อน
+	if _, err := s.Repo.GetOrderForUser(userID, orderID); err != nil {
+		return nil, err
+	}
+
+	var p entity.Payment
+	if err := s.DB.
+		Where("order_id = ?", orderID).
+		Order("id DESC").
+		Preload("PaymentMethod").
+		Preload("PaymentStatus").
+		First(&p).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // ยังไม่เคยชำระ/ยังไม่มี payment record
+		}
+		return nil, err
+	}
+
+	return &PaymentSummary{
+		MethodID:   p.PaymentMethodID,
+		MethodName: p.PaymentMethod.MethodName,
+		StatusID:   p.PaymentStatusID,
+		StatusName: p.PaymentStatus.StatusName,
+		PaidAt:     p.PaidAt,
+	}, nil
+}
+
 // สร้างออเดอร์จากตะกร้าใน DB
 func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*CreateOrderRes, error) {
 	cart, err := s.CartRepo.GetCartWithItems(userID)
@@ -198,9 +237,8 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 		subtotal += it.Total
 	}
 	discount := int64(0)
-	delivery := int64(2)
+	delivery := int64(0)
 	total := subtotal - discount + delivery
-	const pending uint = 1 // TODO: lookup จริง
 
 	var out CreateOrderRes
 	err = s.DB.Transaction(func(tx *gorm.DB) error {
@@ -212,7 +250,7 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 			Discount:      discount,
 			DeliveryFee:   delivery,
 			Total:         total,
-			Address:       in.Address, // ⬅️ snapshot address ลงออเดอร์
+			Address:       in.Address, // snapshot address ลงออเดอร์
 		}
 		if err := s.Repo.CreateOrder(tx, &order); err != nil {
 			return err
@@ -232,7 +270,7 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 			}
 		}
 
-		// ⬇️ (ทางเลือก) ถ้ารับ paymentMethod เข้ามา → บันทึก payment pending
+		// ถ้ารับ paymentMethod เข้ามา → บันทึก payment pending ไว้ล่วงหน้า (ออปชัน)
 		if in.PaymentMethod != "" {
 			pmID, err := s.Repo.GetPaymentMethodIDFromKey(in.PaymentMethod)
 			if err != nil {
