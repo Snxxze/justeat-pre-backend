@@ -187,11 +187,18 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		wsGroup.GET("/chat/:roomId", hub.HandleWebSocket)
 	}
 
-	// ---------- Payment ----------
-	paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey)
+	// Payment controller
+
+	paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
+
+	r.GET("/api/orders/:id/payment-intent", middlewares.AuthMiddleware(cfg.JWTSecret), paymentController.GetPaymentIntent)
+	r.GET("/api/orders/:id/payment-summary", middlewares.AuthMiddleware(cfg.JWTSecret), paymentController.GetPaymentSummary)
+	//  เพิ่ม API Group
 	apiGroup := r.Group("/api")
 	{
-		paymentsGroup := apiGroup.Group("/payments", middlewares.AuthMiddleware(cfg.JWTSecret))
+		// Payment endpoints
+		paymentsGroup := apiGroup.Group("/payments")
+		paymentsGroup.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
 		{
 			paymentsGroup.POST("/verify-easyslip", paymentController.VerifyEasySlip)
 		}
