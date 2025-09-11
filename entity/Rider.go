@@ -8,7 +8,8 @@ type Rider struct {
 	gorm.Model
 	VehiclePlate string `json:"vehiclePlate"`
 	License      string `json:"license"`
-	DriveCard     string   `json:"driveCard"`
+	
+	DriveCard    string `json:"driveCard,omitempty" gorm:"column:drive_card;type:longtext"`
 
 	RiderStatusID uint        `json:"riderStatusId"`
 	RiderStatus   RiderStatus `json:"-"` // preload เฉพาะตอน detail

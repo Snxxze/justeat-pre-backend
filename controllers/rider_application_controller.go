@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"errors"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -75,12 +77,19 @@ func (ctl *RiderApplicationController) Apply(c *gin.Context) {
 		UserID:       utils.CurrentUserID(c),
 		VehiclePlate: req.VehiclePlate,
 		License:      req.License,
-		DriveCar:     req.DriveCarPicture, // เก็บรูป base64 ลงฟิลด์ application
-		// Status = pending เซ็ตใน service
+		DriveCar:     req.DriveCarPicture,
 	}
 
 	id, err := ctl.Service.Apply(&app)
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
+	if err != nil {
+		// ✅ สมัครซ้ำ (ยังมี pending/approved)
+		if errors.Is(err, services.ErrAlreadyApplied) {
+			c.JSON(http.StatusConflict, gin.H{"error": "already_applied_active"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusCreated, ApplyResp{ID: id, Status: "pending"})
 }
