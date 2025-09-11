@@ -1,19 +1,19 @@
 package entity
 
-import (
-	"gorm.io/gorm"
-)
+import "gorm.io/gorm"
 
 type Message struct {
 	gorm.Model
-	Body string `json:"body"`
+	Body string `json:"body" gorm:"type:text;not null"`
 
-	TypeMessageID uint        `json:"typeMessageId"`
-	TypeMessage   MessageType `json:"-"` // preload เฉพาะตอน detail
+	// ประเภทข้อความ (TEXT / IMAGE / SYSTEM)
+	TypeMessageID uint        `json:"typeMessageId" gorm:"not null"`
+	TypeMessage   MessageType `json:"-"`
 
-	UserSenderID uint `json:"userSenderId"`
-	UserSender   User `json:"-"` // preload แยกเมื่อจำเป็น
+	// ใครเป็นผู้ส่ง (ลูกค้า / rider)
+	UserSenderID uint `json:"userSenderId" gorm:"not null"`
+	UserSender   User `json:"-"`
 
-	RoomID uint `json:"roomId"`
-	Room   ChatRoom `json:"-"` // ซ่อนเพื่อเลี่ยง loop
+	RoomID uint     `json:"roomId" gorm:"not null"`
+	Room   ChatRoom `json:"-"`
 }
