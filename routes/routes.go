@@ -31,6 +31,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	riderWorkRepo := repository.NewRiderWorkRepository(db)
 	riderAppRepo := repository.NewRiderApplicationRepository(db)
 	chatRepo := repository.NewChatRepository(db)
+	paymentRepo := repository.NewPaymentRepository(db)
 
 	// ------------------------------------------------------------
 	// Services
@@ -46,7 +47,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 
 	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
 	cartSvc := services.NewCartService(db, cartRepo, orderRepo)
-	riderSvc := services.NewRiderService(db, riderRepo, riderWorkRepo, orderRepo)
+	riderSvc := services.NewRiderService(db, riderRepo, riderWorkRepo, orderRepo, paymentRepo)
 	chatService := services.NewChatService(db, chatRepo)
 
 	// Hub WS
@@ -188,7 +189,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	}
 
 	// Payment controller
-
 	paymentController := controllers.NewPaymentController(db, cfg.EasySlipAPIKey) // ===== EasySlip API Key ส่วนมากปัญหาอยู่ตรงนี้
 
 	r.GET("/api/orders/:id/payment-intent", middlewares.AuthMiddleware(cfg.JWTSecret), paymentController.GetPaymentIntent)

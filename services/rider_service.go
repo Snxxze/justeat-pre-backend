@@ -14,6 +14,7 @@ type RiderService struct {
 	RiderRepo *repository.RiderRepository
 	WorkRepo  *repository.RiderWorkRepository
 	OrderRepo *repository.OrderRepository
+	PaymentRepo *repository.PaymentRepository
 
 	// lazy-loaded status IDs (resolve ครั้งเดียว)
 	once              sync.Once
@@ -26,6 +27,9 @@ type RiderService struct {
 	OrderDeliveringID uint
 	OrderCompletedID  uint
 
+	PaymentMethodCODID  uint 
+  PaymentStatusPaidID uint  
+
 	initErr error
 }
 
@@ -34,9 +38,10 @@ func NewRiderService(
 	riderRepo *repository.RiderRepository,
 	workRepo *repository.RiderWorkRepository,
 	orderRepo *repository.OrderRepository,
+	paymentRepo *repository.PaymentRepository,
 ) *RiderService {
 	return &RiderService{
-		DB: db, RiderRepo: riderRepo, WorkRepo: workRepo, OrderRepo: orderRepo,
+		DB: db, RiderRepo: riderRepo, WorkRepo: workRepo, OrderRepo: orderRepo, PaymentRepo: paymentRepo,
 	}
 }
 
@@ -55,6 +60,9 @@ func (s *RiderService) initIDs() error {
 		if s.OrderPreparingID, err = s.OrderRepo.GetStatusIDByName("Preparing"); err != nil { s.initErr = err; return }
 		if s.OrderDeliveringID, err = s.OrderRepo.GetStatusIDByName("Delivering"); err != nil { s.initErr = err; return }
 		if s.OrderCompletedID, err = s.OrderRepo.GetStatusIDByName("Completed"); err != nil { s.initErr = err; return }
+
+		if s.PaymentMethodCODID, err = s.PaymentRepo.GetMethodIDByName("Cash on Delivery"); err != nil { s.initErr = err; return }
+    if s.PaymentStatusPaidID, err = s.PaymentRepo.GetStatusIDByName("Paid"); err != nil { s.initErr = err; return }
 	})
 	return s.initErr
 }
@@ -124,10 +132,14 @@ func (s *RiderService) AcceptWork(userID, orderID uint) error {
 
 // 3) ส่งสำเร็จ: ASSIGNED → COMPLETED → ONLINE + Order Delivering → Completed
 func (s *RiderService) CompleteWork(userID, orderID uint) error {
-	if err := s.initIDs(); err != nil { return err }
+	if err := s.initIDs(); err != nil {
+		return err 
+	}
 
 	r, err := s.RiderRepo.GetByUserID(userID)
-	if err != nil { return err }
+	if err != nil { 
+		return err 
+	}
 	if r.RiderStatusID != s.StatusAssignedID {
 		return errors.New("rider is not on an assigned work")
 	}
@@ -138,10 +150,27 @@ func (s *RiderService) CompleteWork(userID, orderID uint) error {
 		if err := s.WorkRepo.FinishWork(tx, r.ID, orderID, now); err != nil {
 			return err
 		}
+
 		// order: Delivering → Completed
 		ok, err := s.OrderRepo.UpdateStatusFromTo(tx, orderID, s.OrderDeliveringID, s.OrderCompletedID)
-		if err != nil { return err }
-		if !ok { return errors.New("order not in delivering state") }
+		if err != nil { 
+			return err 
+		}
+		if !ok { 
+			return errors.New("order not in delivering state") 
+		}
+
+		pmt, err := s.PaymentRepo.GetByOrderID(orderID)
+		if err != nil {
+			return err
+		}
+		
+		if pmt.PaymentMethodID == s.PaymentMethodCODID { // สมมติคุณมี constant หรือค่า id ของ COD
+			// อัปเดต payment = paid
+			if err := s.PaymentRepo.UpdateStatus(tx, pmt.ID, s.PaymentStatusPaidID, &now); err != nil {
+				return err
+			}
+		}
 
 		// set COMPLETED แล้วเด้งกลับ ONLINE (ให้ UI รู้ว่าเพิ่ง complete)
 		if err := s.RiderRepo.UpdateStatus(tx, r.ID, s.StatusCompletedID); err != nil {
