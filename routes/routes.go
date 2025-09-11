@@ -64,12 +64,12 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	rAppController := controllers.NewRestaurantApplicationController(rAppService)
 	riderAppCtl := controllers.NewRiderApplicationController(riderAppSvc)
 
-	orderCtl := controllers.NewOrderController(orderSvc)
 	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)
 	cartCtl := controllers.NewCartController(cartSvc)
 	riderCtl := controllers.NewRiderController(riderSvc)
 	chatController := controllers.NewChatController(chatService)
 	reviewCtl := controllers.NewReviewController(db)
+	orderCtl := controllers.NewOrderController(db)
 	
 	userPromoCtrl := controllers.NewUserPromotionController(userPromoService)
 	adminCtrl := controllers.NewAdminController(db)
