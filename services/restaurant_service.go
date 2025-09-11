@@ -28,3 +28,23 @@ func (s *RestaurantService) Get(id uint) (*entity.Restaurant, error) {
 func (s *RestaurantService) Update(rest *entity.Restaurant) error {
 	return s.Repo.Update(rest)
 }
+
+// ListFiltered ดึงร้านตาม categoryId และ statusId (optional)
+func (s *RestaurantService) ListFiltered(categoryId, statusId string) ([]entity.Restaurant, error) {
+	q := s.Repo.DB
+
+	if categoryId != "" {
+		q = q.Where("restaurant_category_id = ?", categoryId)
+	}
+	if statusId != "" {
+		q = q.Where("restaurant_status_id = ?", statusId)
+	}
+
+	var rests []entity.Restaurant
+	err := q.
+		Preload("RestaurantCategory").
+		Preload("RestaurantStatus").
+		Preload("User").
+		Find(&rests).Error
+	return rests, err
+}

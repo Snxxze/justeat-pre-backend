@@ -46,9 +46,12 @@ type RestaurantResponse struct {
 	} `json:"owner"`
 }
 
-// ====== Public: ดูร้านทั้งหมด ======
+// ====== Public: ดูร้านทั้งหมด (รองรับ filter ด้วย categoryId) ======
 func (ctl *RestaurantController) List(c *gin.Context) {
-	rests, err := ctl.Service.List()
+	categoryId := c.Query("categoryId")
+	statusId := c.Query("statusId")
+
+	rests, err := ctl.Service.ListFiltered(categoryId, statusId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -56,8 +59,7 @@ func (ctl *RestaurantController) List(c *gin.Context) {
 
 	var resp []RestaurantResponse
 	for _, r := range rests {
-		item := mapToRestaurantResponse(&r)
-		resp = append(resp, item)
+		resp = append(resp, mapToRestaurantResponse(&r))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"items": resp})

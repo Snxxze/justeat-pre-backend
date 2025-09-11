@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// ---------- Config Struct ----------
 type StatusIDs struct {
 	Pending    uint
 	Preparing  uint
@@ -21,7 +22,6 @@ type OrderService struct {
 	DB       *gorm.DB
 	Repo     *repository.OrderRepository
 	CartRepo *repository.CartRepository
-
 	RestRepo *repository.RestaurantRepository
 	Status   StatusIDs
 }
@@ -34,25 +34,37 @@ func NewOrderService(
 ) *OrderService {
 	s := &OrderService{DB: db, Repo: repo, CartRepo: cartRepo, RestRepo: restRepo}
 
-	if id, err := repo.GetStatusIDByName("Pending"); err == nil { s.Status.Pending = id }
-	if id, err := repo.GetStatusIDByName("Preparing"); err == nil { s.Status.Preparing = id }
-	if id, err := repo.GetStatusIDByName("Delivering"); err == nil { s.Status.Delivering = id }
-	if id, err := repo.GetStatusIDByName("Completed"); err == nil { s.Status.Completed = id }
-	if id, err := repo.GetStatusIDByName("Cancelled"); err == nil { s.Status.Cancelled = id }
-
+	// preload ค่า status id
+	if id, err := repo.GetStatusIDByName("Pending"); err == nil {
+		s.Status.Pending = id
+	}
+	if id, err := repo.GetStatusIDByName("Preparing"); err == nil {
+		s.Status.Preparing = id
+	}
+	if id, err := repo.GetStatusIDByName("Delivering"); err == nil {
+		s.Status.Delivering = id
+	}
+	if id, err := repo.GetStatusIDByName("Completed"); err == nil {
+		s.Status.Completed = id
+	}
+	if id, err := repo.GetStatusIDByName("Cancelled"); err == nil {
+		s.Status.Cancelled = id
+	}
 	return s
 }
 
-// ----- DTOs from Controller -----
+// ---------- DTOs ----------
 type OrderItemIn struct {
 	MenuID uint `json:"menuId"`
 	Qty    int  `json:"qty"`
 }
+
 type CreateOrderReq struct {
 	RestaurantID uint          `json:"restaurantId"`
 	Items        []OrderItemIn `json:"items"`
+	Discount     int64         `json:"discount,omitempty"`
+	Address      string        `json:"address" binding:"required"`
 }
-
 type CreateOrderRes struct {
 	ID    uint  `json:"id"`
 	Total int64 `json:"total"`
@@ -61,9 +73,21 @@ type CreateOrderRes struct {
 type CheckoutFromCartReq struct {
 	Address       string `json:"address" binding:"required"`
 	PaymentMethod string `json:"paymentMethod" binding:"omitempty,oneof='PromptPay' 'Cash on Delivery'"`
+	Discount      int64  `json:"discount,omitempty"`
 }
 
-// ======== เพิ่ม DTO สำหรับสรุปการชำระเงิน ========
+type OrderDetail struct {
+	ID            uint               `json:"id"`
+	Subtotal      int64              `json:"subtotal"`
+	Discount      int64              `json:"discount"`
+	DeliveryFee   int64              `json:"deliveryFee"`
+	Total         int64              `json:"total"`
+	OrderStatusID uint               `json:"orderStatusId"`
+	RestaurantID  uint               `json:"restaurantId"`
+	Items         []entity.OrderItem `json:"items"`
+}
+
+// สำหรับ summary การจ่ายเงินล่าสุด
 type PaymentSummary struct {
 	MethodID   uint       `json:"methodId"`
 	MethodName string     `json:"methodName"`
@@ -72,7 +96,9 @@ type PaymentSummary struct {
 	PaidAt     *time.Time `json:"paidAt,omitempty"`
 }
 
-// ----- Create -----
+// ---------- Orders (CRUD หลัก) ----------
+
+// POST /orders
 func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes, error) {
 	if len(req.Items) == 0 {
 		return nil, errors.New("items is required")
@@ -86,6 +112,7 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 		return nil, errors.New("restaurant not found")
 	}
 
+	// validate menus belong to restaurant
 	menuIDs := make([]uint, 0, len(req.Items))
 	for _, it := range req.Items {
 		menuIDs = append(menuIDs, it.MenuID)
@@ -98,13 +125,13 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 		return nil, errors.New("menu not in this restaurant")
 	}
 
+	// คำนวณ subtotal + prepare order items
 	var subtotal int64
 	rows := make([]struct {
 		menuID    uint
 		qty       int
 		unitPrice int64
 	}, 0, len(req.Items))
-
 	for _, it := range req.Items {
 		m, err := s.Repo.GetMenuBasics(it.MenuID)
 		if err != nil {
@@ -119,20 +146,30 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 		}{m.ID, it.Qty, unit})
 	}
 
-	discount := int64(0)
+	// discount logic
+	discount := req.Discount
+	if discount < 0 {
+		discount = 0
+	}
+	if discount > subtotal {
+		discount = subtotal
+	}
+
 	deliveryFee := int64(0)
 	total := subtotal - discount + deliveryFee
 
+	// Transaction
 	var out CreateOrderRes
 	err = s.DB.Transaction(func(tx *gorm.DB) error {
 		order := entity.Order{
-			Subtotal:     subtotal,
-			Discount:     discount,
-			DeliveryFee:  deliveryFee,
-			Total:        total,
-			UserID:       userID,
-			RestaurantID: req.RestaurantID,
+			Subtotal:      subtotal,
+			Discount:      discount,
+			DeliveryFee:   deliveryFee,
+			Total:         total,
+			UserID:        userID,
+			RestaurantID:  req.RestaurantID,
 			OrderStatusID: s.Status.Pending,
+			Address:       req.Address,
 		}
 		if err := s.Repo.CreateOrder(tx, &order); err != nil {
 			return err
@@ -157,22 +194,12 @@ func (s *OrderService) Create(userID uint, req *CreateOrderReq) (*CreateOrderRes
 	return &out, nil
 }
 
-// ----- List & Detail -----
+// GET /orders (ลูกค้า)
 func (s *OrderService) ListForUser(userID uint, limit int) ([]repository.OrderSummary, error) {
 	return s.Repo.ListOrdersForUser(userID, limit)
 }
 
-type OrderDetail struct {
-	ID            uint               `json:"id"`
-	Subtotal      int64              `json:"subtotal"`
-	Discount      int64              `json:"discount"`
-	DeliveryFee   int64              `json:"deliveryFee"`
-	Total         int64              `json:"total"`
-	OrderStatusID uint               `json:"orderStatusId"`
-	RestaurantID  uint               `json:"restaurantId"`
-	Items         []entity.OrderItem `json:"items"`
-}
-
+// GET /orders/:id (ลูกค้า)
 func (s *OrderService) DetailForUser(userID, orderID uint) (*OrderDetail, error) {
 	o, err := s.Repo.GetOrderForUser(userID, orderID)
 	if err != nil {
@@ -188,9 +215,11 @@ func (s *OrderService) DetailForUser(userID, orderID uint) (*OrderDetail, error)
 	}, nil
 }
 
-// ======== เมธอดดึงสรุปการชำระเงินของออเดอร์ (payment ล่าสุด) ========
+// ---------- Payment ----------
+
+// GET /orders/:id/payment-summary
 func (s *OrderService) PaymentSummaryForOrder(userID, orderID uint) (*PaymentSummary, error) {
-	// เช็คสิทธิ์เข้าถึงออเดอร์ก่อน
+	// check สิทธิ์ก่อน
 	if _, err := s.Repo.GetOrderForUser(userID, orderID); err != nil {
 		return nil, err
 	}
@@ -204,7 +233,7 @@ func (s *OrderService) PaymentSummaryForOrder(userID, orderID uint) (*PaymentSum
 		First(&p).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil // ยังไม่เคยชำระ/ยังไม่มี payment record
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -218,7 +247,9 @@ func (s *OrderService) PaymentSummaryForOrder(userID, orderID uint) (*PaymentSum
 	}, nil
 }
 
-// สร้างออเดอร์จากตะกร้าใน DB
+// ---------- Orders from Cart ----------
+
+// POST /checkout
 func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*CreateOrderRes, error) {
 	cart, err := s.CartRepo.GetCartWithItems(userID)
 	if err != nil {
@@ -231,15 +262,25 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 		return nil, errors.New("cart is empty")
 	}
 
-	// คำนวณราคารวมจาก snapshot ใน cart
+	// subtotal
 	var subtotal int64
 	for _, it := range cart.Items {
 		subtotal += it.Total
 	}
-	discount := int64(0)
+
+	// discount
+	discount := in.Discount
+	if discount < 0 {
+		discount = 0
+	}
+	if discount > subtotal {
+		discount = subtotal
+	}
+
 	delivery := int64(0)
 	total := subtotal - discount + delivery
 
+	// Transaction
 	var out CreateOrderRes
 	err = s.DB.Transaction(func(tx *gorm.DB) error {
 		order := entity.Order{
@@ -250,13 +291,13 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 			Discount:      discount,
 			DeliveryFee:   delivery,
 			Total:         total,
-			Address:       in.Address, // snapshot address ลงออเดอร์
+			Address:       in.Address,
 		}
 		if err := s.Repo.CreateOrder(tx, &order); err != nil {
 			return err
 		}
 
-		// ย้ายรายการจาก cart -> order
+		// copy items
 		for _, it := range cart.Items {
 			oi := entity.OrderItem{
 				OrderID:   order.ID,
@@ -270,7 +311,7 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 			}
 		}
 
-		// ถ้ารับ paymentMethod เข้ามา → บันทึก payment pending ไว้ล่วงหน้า (ออปชัน)
+		// optional payment record
 		if in.PaymentMethod != "" {
 			pmID, err := s.Repo.GetPaymentMethodIDFromKey(in.PaymentMethod)
 			if err != nil {
@@ -290,7 +331,7 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 			}
 		}
 
-		// เคลียร์ cart
+		// clear cart
 		if err := s.CartRepo.ClearCart(tx, userID); err != nil {
 			return err
 		}
@@ -304,6 +345,8 @@ func (s *OrderService) CreateFromCart(userID uint, in *CheckoutFromCartReq) (*Cr
 	return &out, nil
 }
 
+// ---------- Owner (ร้าน) ----------
+
 func (s *OrderService) RepoOwnerCheck(restID, userID uint) (bool, error) {
 	return s.RestRepo.IsOwnedBy(restID, userID)
 }
@@ -315,8 +358,8 @@ type OwnerOrderListOut struct {
 	Limit int                            `json:"limit"`
 }
 
+// GET /owner/restaurants/:id/orders
 func (s *OrderService) ListForRestaurant(userID, restID uint, statusID *uint, page, limit int) (*OwnerOrderListOut, error) {
-	// ยืนยันความเป็นเจ้าของร้าน
 	ok, err := s.RepoOwnerCheck(restID, userID)
 	if err != nil {
 		return nil, err
@@ -329,7 +372,6 @@ func (s *OrderService) ListForRestaurant(userID, restID uint, statusID *uint, pa
 	if err != nil {
 		return nil, err
 	}
-
 	return &OwnerOrderListOut{Items: items, Total: total, Page: page, Limit: limit}, nil
 }
 
@@ -338,6 +380,7 @@ type OwnerOrderDetail struct {
 	Items []entity.OrderItem `json:"items"`
 }
 
+// GET /owner/restaurants/:id/orders/:oid
 func (s *OrderService) DetailForRestaurant(userID, restID, orderID uint) (*OwnerOrderDetail, error) {
 	ok, err := s.RepoOwnerCheck(restID, userID)
 	if err != nil {

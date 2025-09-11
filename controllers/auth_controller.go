@@ -161,7 +161,7 @@ func (a *AuthController) GetAvatar(c *gin.Context) {
 	}
 	if b64 == "" {
 			// ✅ ส่ง default แทน ไม่ต้อง 404
-			c.JSON(http.StatusOK, gin.H{"avatarBase64": "https://i.pravatar.cc/150?img=3"})
+			c.JSON(http.StatusOK, gin.H{"avatarBase64": ""})
 			return
 	}
 

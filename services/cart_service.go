@@ -90,10 +90,38 @@ func (s *CartService) UpdateQty(userID, itemID uint, qty int) error {
 	})
 }
 
+// RemoveItem ลบเมนูออกจากตะกร้า
 func (s *CartService) RemoveItem(userID, itemID uint) error {
-	return s.DB.Transaction(func(tx *gorm.DB) error {
-		return s.CartRepo.RemoveItem(tx, userID, itemID)
-	})
+	var item entity.CartItem
+	if err := s.DB.First(&item, "id = ?", itemID).Error; err != nil {
+		return err
+	}
+
+	// ✅ ตรวจสอบว่า cart เป็นของ user จริง
+	var cart entity.Cart
+	if err := s.DB.First(&cart, "id = ? AND user_id = ?", item.CartID, userID).Error; err != nil {
+		return err
+	}
+
+	// 1) ลบ item ออก
+	if err := s.DB.Delete(&item).Error; err != nil {
+		return err
+	}
+
+	// 2) เช็คว่ามี item เหลือมั้ย
+	var count int64
+	if err := s.DB.Model(&entity.CartItem{}).
+		Where("cart_id = ?", cart.ID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+
+	// 3) ถ้าไม่มี item → เรียก ClearCart ไปเลย
+	if count == 0 {
+		return s.Clear(userID)
+	}
+
+	return nil
 }
 
 func (s *CartService) Clear(userID uint) error {

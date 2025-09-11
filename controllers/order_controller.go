@@ -14,9 +14,11 @@ import (
 
 type OrderController struct{ Svc *services.OrderService }
 
-func NewOrderController(s *services.OrderService) *OrderController { return &OrderController{Svc: s} }
+func NewOrderController(s *services.OrderService) *OrderController {
+	return &OrderController{Svc: s}
+}
 
-// ====== DTO สำหรับแนบสรุปการชำระเงิน ======
+// ---------- DTOs ----------
 type PaymentSummaryDTO struct {
 	MethodID   uint       `json:"methodId"`
 	MethodName string     `json:"methodName"`
@@ -25,11 +27,13 @@ type PaymentSummaryDTO struct {
 	PaidAt     *time.Time `json:"paidAt,omitempty"`
 }
 
-// ตอบรายละเอียดออเดอร์ + แนบ paymentSummary (เมื่อมีการชำระหรือมีการสร้าง payment pending)
+// ตอบรายละเอียดออเดอร์ + แนบ paymentSummary
 type OrderDetailWithPayment struct {
 	*services.OrderDetail
 	PaymentSummary *PaymentSummaryDTO `json:"paymentSummary,omitempty"`
 }
+
+// ---------- Orders (CRUD หลัก) ----------
 
 // POST /orders
 func (h *OrderController) Create(c *gin.Context) {
@@ -56,11 +60,9 @@ func (h *OrderController) Create(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		// ที่เหลือถือเป็นปัญหา validation → 400
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusCreated, res) // { id, total }
 }
 
@@ -86,7 +88,7 @@ func (h *OrderController) ListForMe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
-// GET /orders/:id  (แนบ paymentSummary เมื่อส่ง ?withPayment=1)
+// GET /orders/:id  (?withPayment=1 → แนบ payment summary)
 func (h *OrderController) Detail(c *gin.Context) {
 	v, ok := c.Get("userId")
 	if !ok || v == nil {
@@ -116,7 +118,6 @@ func (h *OrderController) Detail(c *gin.Context) {
 	}
 
 	withPayment := c.DefaultQuery("withPayment", "0") == "1"
-
 	resp := OrderDetailWithPayment{OrderDetail: out}
 	if withPayment {
 		if ps, err := h.Svc.PaymentSummaryForOrder(uid, uint(id)); err == nil && ps != nil {
@@ -129,9 +130,10 @@ func (h *OrderController) Detail(c *gin.Context) {
 			}
 		}
 	}
-
 	c.JSON(http.StatusOK, resp)
 }
+
+// ---------- Checkout ----------
 
 // POST /orders/checkout-from-cart
 func (h *OrderController) CheckoutFromCart(c *gin.Context) {
@@ -148,7 +150,6 @@ func (h *OrderController) CheckoutFromCart(c *gin.Context) {
 
 	var req services.CheckoutFromCartReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// FE จะส่ง address เสมอ ถ้าไม่มาก็ invalid
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
