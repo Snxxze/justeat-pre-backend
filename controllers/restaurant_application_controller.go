@@ -6,6 +6,7 @@ import (
 	"backend/utils"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,7 @@ type ApplyRestaurantReq struct {
 	OpeningTime          string `json:"openingTime" binding:"required"`
 	ClosingTime          string `json:"closingTime" binding:"required"`
 	RestaurantCategoryID uint   `json:"restaurantCategoryId" binding:"required"`
+	PromptPay string `json:"promptPay" binding:"required"`
 }
 
 // ====== Response DTO ======
@@ -78,11 +80,35 @@ type RejectResponse struct {
 	Reason        string `json:"reason"`
 }
 
+// ===== helpers =====
+func onlyDigits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func isValidPromptPay(digits string) bool {
+	// 10 = เบอร์มือถือ, 13 = เลขบัตรประชาชน
+	return len(digits) == 10 || len(digits) == 13
+}
+
 // ====== User สมัครร้าน ======
 func (ctl *RestaurantApplicationController) Apply(c *gin.Context) {
 	var req ApplyRestaurantReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	pp := onlyDigits(req.PromptPay)
+	if !isValidPromptPay(pp) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid promptPay: ต้องเป็นเบอร์ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก",
+		})
 		return
 	}
 
@@ -97,6 +123,7 @@ func (ctl *RestaurantApplicationController) Apply(c *gin.Context) {
 		OwnerUserID:          utils.CurrentUserID(c),
 		Picture:              req.PictureBase64,
 		Status:               "pending",
+		PromptPay:            pp,
 	}
 
 	if err := ctl.DB.Create(&app).Error; err != nil {
@@ -199,7 +226,8 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 		RestaurantCategoryID: app.RestaurantCategoryID,
 		RestaurantStatusID:   statusID,
 		UserID:               app.OwnerUserID,
-		AdminID:              &admin.ID, // ✅ ผูกกับ admin จริง ๆ
+		AdminID:              &admin.ID,
+		PromptPay:            app.PromptPay, 
 	}
 
 	tx := ctl.DB.Begin()

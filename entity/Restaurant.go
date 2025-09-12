@@ -20,6 +20,8 @@ type Restaurant struct {
 	RestaurantStatusID uint             `json:"restaurantStatusId"`
 	RestaurantStatus   RestaurantStatus `json:"-"` // preload เฉพาะตอน detail
 
+	PromptPay string `json:"promptPay" gorm:"column:prompt_pay;type:varchar(32)"` // promptPay จะเป็นเบอร์ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก
+	
 	UserID uint `json:"userId"` // owner
 	User   User `json:"-"` // preload เฉพาะตอนต้องการข้อมูลเจ้าของร้าน
 

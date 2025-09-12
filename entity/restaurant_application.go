@@ -20,6 +20,8 @@ type RestaurantApplication struct {
 	RestaurantCategoryID uint `json:"restaurantCategoryId"`
 	RestaurantCategory   RestaurantCategory `json:"restaurantCategory" gorm:"foreignKey:RestaurantCategoryID"`
 
+	PromptPay string `json:"promptPay" gorm:"column:prompt_pay;type:varchar(32)"`
+
 	OwnerUserID          uint `json:"ownerUserId"` // คนยื่น (เจ้าของในอนาคต)
 	OwnerUser   User   `json:"ownerUser"` // preload เอามาโชว์
 
