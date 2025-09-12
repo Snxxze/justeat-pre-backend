@@ -452,15 +452,6 @@ func (h *RiderController) GetCurrentWork(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"work": row})
 }
 
-/* =========================
-   HELPERS เดิม
-========================= */
-
-func getPaymentStatusID(db *gorm.DB, name string) uint {
-	var ps entity.PaymentStatus
-	db.Where("status_name=?", name).First(&ps)
-	return ps.ID
-}
 type RiderProfileResponse struct {
 	ID          uint   `json:"id"`
 	FirstName   string `json:"firstName"`
