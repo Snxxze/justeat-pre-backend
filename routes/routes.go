@@ -116,6 +116,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 		riderGroup.GET("/works/available", riderCtl.ListAvailable)
 		riderGroup.POST("/works/:orderId/accept", riderCtl.Accept)
 		riderGroup.POST("/works/:orderId/complete", riderCtl.Complete)
+		riderGroup.GET("/works", riderCtl.ListWorks)
 	}
 
 	// ---------- Restaurant Applications ----------
