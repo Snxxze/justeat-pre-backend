@@ -48,6 +48,17 @@ func stripDataURLHeader(b64 string) (string, error) {
 	return b64, nil
 }
 
+// เก็บเฉพาะตัวเลข 0-9 (ใช้กับ PromptPay ที่อาจมี dash/space ติดมา)
+func digitsOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func NewPaymentController(db *gorm.DB, easySlipToken string) *PaymentController {
 	log.Printf("[PAYMENT_CONTROLLER] Received token length: %d", len(easySlipToken))
 	if easySlipToken == "" {
@@ -325,15 +336,16 @@ func (ctl *PaymentController) GetPaymentIntent(c *gin.Context) {
 		return
 	}
 
-	// โหลดร้าน + เจ้าของร้านเพื่อเอาเบอร์
+	// โหลดร้าน เพื่อเอา PromptPay จากตาราง restaurants
 	var rest entity.Restaurant
 	if err := ctl.DB.First(&rest, ord.RestaurantID).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "restaurant not found"})
 		return
 	}
-	var owner entity.User
-	if err := ctl.DB.First(&owner, rest.UserID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "owner not found"})
+
+	pp := digitsOnly(rest.PromptPay)
+	if pp == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "restaurant has no PromptPay (mobile or citizen ID) set"})
 		return
 	}
 
@@ -344,8 +356,11 @@ func (ctl *PaymentController) GetPaymentIntent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"orderId":          ord.ID,
 		"restaurantId":     rest.ID,
-		"restaurantUserId": owner.ID,
-		"promptPayMobile":  owner.PhoneNumber,
+		"restaurantUserId": rest.UserID,
+
+		// ใช้ PromptPay จากตาราง restaurants แทนเบอร์ของ owner
+		"promptPayMobile": pp, // คงชื่อเดิมเพื่อความเข้ากันได้กับ FE
+		"promptPay":       pp, // bonus: เผื่อ FE อยากใช้ชื่อคีย์ตรง ๆ
 
 		// ใช้งานใน FE เวอร์ชันใหม่
 		"amount": amountBaht, // บาท ตรง ๆ

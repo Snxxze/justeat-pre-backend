@@ -6,6 +6,7 @@ import (
 	"backend/utils"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,21 @@ func NewRestaurantApplicationController(s *services.RestaurantApplicationService
 	return &RestaurantApplicationController{Service: s}
 }
 
+// ===== helpers =====
+func onlyDigits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+func isValidPromptPay(digits string) bool {
+	// 10 = เบอร์มือถือ, 13 = เลขบัตรประชาชน
+	return len(digits) == 10 || len(digits) == 13
+}
+
 // ====== Request DTO ======
 type ApplyRestaurantReq struct {
 	Name                 string `json:"name" binding:"required"`
@@ -29,6 +45,9 @@ type ApplyRestaurantReq struct {
 	OpeningTime          string `json:"openingTime" binding:"required"`
 	ClosingTime          string `json:"closingTime" binding:"required"`
 	RestaurantCategoryID uint   `json:"restaurantCategoryId" binding:"required"`
+
+	// ใหม่: PromptPay (รับทั้งเบอร์/บัตร ป้อนมาอย่างไรก็ได้ เดี๋ยว server เก็บเฉพาะตัวเลข)
+	PromptPay string `json:"promptPay" binding:"required"`
 }
 
 // ====== Response DTO ======
@@ -56,6 +75,7 @@ type RestaurantApplicationResponse struct {
 	} `json:"ownerUser"`
 
 	Status string `json:"status"`
+	// หมายเหตุ: ไม่ส่ง PromptPay ออกใน list response เพื่อลดความเสี่ยงข้อมูลอ่อนไหว
 }
 
 // Apply Response
@@ -88,6 +108,15 @@ func (ctl *RestaurantApplicationController) Apply(c *gin.Context) {
 		return
 	}
 
+	// sanitize & validate PromptPay
+	pp := onlyDigits(req.PromptPay)
+	if !isValidPromptPay(pp) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid promptPay: ต้องเป็นเบอร์ 10 หลัก หรือเลขบัตรประชาชน 13 หลัก",
+		})
+		return
+	}
+
 	app := entity.RestaurantApplication{
 		Name:                 req.Name,
 		Phone:                req.Phone,
@@ -97,6 +126,9 @@ func (ctl *RestaurantApplicationController) Apply(c *gin.Context) {
 		ClosingTime:          req.ClosingTime,
 		RestaurantCategoryID: req.RestaurantCategoryID,
 		OwnerUserID:          utils.CurrentUserID(c),
+
+		// map ค่า PromptPay ลง entity (คอลัมน์ prompt_pay)
+		PromptPay: pp,
 	}
 
 	id, err := ctl.Service.Apply(&app, req.PictureBase64)
