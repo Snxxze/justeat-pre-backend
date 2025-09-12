@@ -22,9 +22,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// ------------------------------------------------------------
 	userRepo := repository.NewUserRepository(db)
 	restRepo := repository.NewRestaurantRepository(db)
-	menuRepo := repository.NewMenuRepository(db)
-	reportRepo := repository.NewReportRepository(db)
-	rAppRepo := repository.NewRestaurantApplicationRepository(db)
 	cartRepo := repository.NewCartRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
 	riderRepo := repository.NewRiderRepository(db)
@@ -37,9 +34,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// Services
 	// ------------------------------------------------------------
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
-	menuService := services.NewMenuService(menuRepo)
-	reportService := services.NewReportService(reportRepo)
-	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	riderAppSvc := services.NewRiderApplicationService(riderAppRepo, riderRepo)
 	
 	userPromoService := services.NewUserPromotionService(db)
@@ -57,9 +51,9 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// Controllers
 	// ------------------------------------------------------------
 	authController := controllers.NewAuthController(authService)
-	menuController := controllers.NewMenuController(menuService)
-	reportController := controllers.NewReportController(reportService)
-	rAppController := controllers.NewRestaurantApplicationController(rAppService)
+	menuController := controllers.NewMenuController(db)
+	reportController := controllers.NewReportController(db)
+	rAppController := controllers.NewRestaurantApplicationController(db)
 	riderAppCtl := controllers.NewRiderApplicationController(riderAppSvc)
 	
 	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)

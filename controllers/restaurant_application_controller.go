@@ -1,22 +1,23 @@
+// controllers/restaurant_application_controller.go
 package controllers
 
 import (
 	"backend/entity"
-	"backend/services"
 	"backend/utils"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type RestaurantApplicationController struct {
-	Service *services.RestaurantApplicationService
+	DB *gorm.DB
 }
 
-func NewRestaurantApplicationController(s *services.RestaurantApplicationService) *RestaurantApplicationController {
-	return &RestaurantApplicationController{Service: s}
+func NewRestaurantApplicationController(db *gorm.DB) *RestaurantApplicationController {
+	return &RestaurantApplicationController{DB: db}
 }
 
 // ====== Request DTO ======
@@ -58,13 +59,11 @@ type RestaurantApplicationResponse struct {
 	Status string `json:"status"`
 }
 
-// Apply Response
 type ApplyResponse struct {
 	ID     uint   `json:"id"`
 	Status string `json:"status"`
 }
 
-// Approve Response
 type ApproveResponse struct {
 	ApplicationID uint   `json:"applicationId"`
 	RestaurantID  uint   `json:"restaurantId"`
@@ -73,7 +72,6 @@ type ApproveResponse struct {
 	NewRole       string `json:"newRole"`
 }
 
-// Reject Response
 type RejectResponse struct {
 	ApplicationID uint   `json:"applicationId"`
 	Status        string `json:"status"`
@@ -97,22 +95,29 @@ func (ctl *RestaurantApplicationController) Apply(c *gin.Context) {
 		ClosingTime:          req.ClosingTime,
 		RestaurantCategoryID: req.RestaurantCategoryID,
 		OwnerUserID:          utils.CurrentUserID(c),
+		Picture:              req.PictureBase64,
+		Status:               "pending",
 	}
 
-	id, err := ctl.Service.Apply(&app, req.PictureBase64)
-	if err != nil {
+	if err := ctl.DB.Create(&app).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusCreated, ApplyResponse{ID: id, Status: "pending"})
+	c.JSON(http.StatusCreated, ApplyResponse{ID: app.ID, Status: "pending"})
 }
 
 // ====== Admin ดูรายการ ======
 func (ctl *RestaurantApplicationController) List(c *gin.Context) {
 	status := c.DefaultQuery("status", "pending")
-	apps, err := ctl.Service.List(status)
-	if err != nil {
+
+	var apps []entity.RestaurantApplication
+	if err := ctl.DB.
+		Preload("OwnerUser").
+		Preload("RestaurantCategory").
+		Where("status = ?", status).
+		Order("id DESC").
+		Find(&apps).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -145,23 +150,91 @@ func (ctl *RestaurantApplicationController) List(c *gin.Context) {
 }
 
 // ====== Admin อนุมัติ ======
-type ApproveReq = services.ApproveReq
+type ApproveReq struct {
+	RestaurantStatusID uint  `json:"restaurantStatusId"`
+	AdminID            *uint `json:"adminId,omitempty"`
+}
 
+// ====== Admin อนุมัติ ======
 func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
-	idStr := c.Param("id")
-	appID, _ := strconv.Atoi(idStr)
+	appID, _ := strconv.Atoi(c.Param("id"))
 
-	var req ApproveReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// เอา userId ของคนที่ login
+	uidAny, ok := c.Get("userId")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID := uidAny.(uint)
+
+	// หา admin จาก user_id
+	var admin entity.Admin
+	if err := ctl.DB.Where("user_id = ?", userID).First(&admin).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "not an admin"})
 		return
 	}
 
-	rest, owner, err := ctl.Service.Approve(uint(appID), req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// หาใบสมัคร
+	var app entity.RestaurantApplication
+	if err := ctl.DB.First(&app, uint(appID)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "application not found"})
 		return
 	}
+	if app.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "application is not pending"})
+		return
+	}
+
+	// set ค่า status และ admin
+	statusID := uint(1)
+	now := time.Now()
+
+	rest := entity.Restaurant{
+		Name:                 app.Name,
+		Address:              app.Address,
+		Description:          app.Description,
+		Picture:              app.Picture,
+		OpeningTime:          app.OpeningTime,
+		ClosingTime:          app.ClosingTime,
+		RestaurantCategoryID: app.RestaurantCategoryID,
+		RestaurantStatusID:   statusID,
+		UserID:               app.OwnerUserID,
+		AdminID:              &admin.ID, // ✅ ผูกกับ admin จริง ๆ
+	}
+
+	tx := ctl.DB.Begin()
+
+	// สร้างร้าน
+	if err := tx.Create(&rest).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// update role owner
+	if err := tx.Model(&entity.User{}).
+		Where("id = ?", app.OwnerUserID).
+		Where("role = '' OR role = 'customer'").
+		Update("role", "owner").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// update application
+	app.Status = "approved"
+	app.ReviewedAt = &now
+	app.AdminID = &admin.ID // ✅ ติด admin ที่อนุมัติ
+	if err := tx.Save(&app).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	tx.Commit()
+
+	var owner entity.User
+	ctl.DB.First(&owner, app.OwnerUserID)
 
 	c.JSON(http.StatusOK, ApproveResponse{
 		ApplicationID: uint(appID),
@@ -172,6 +245,7 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 	})
 }
 
+
 // ====== Admin ปฏิเสธ ======
 type RejectReq struct {
 	Reason  string `json:"reason" binding:"required"`
@@ -179,8 +253,7 @@ type RejectReq struct {
 }
 
 func (ctl *RestaurantApplicationController) Reject(c *gin.Context) {
-	idStr := c.Param("id")
-	appID, _ := strconv.Atoi(idStr)
+	appID, _ := strconv.Atoi(c.Param("id"))
 
 	var req RejectReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -188,8 +261,24 @@ func (ctl *RestaurantApplicationController) Reject(c *gin.Context) {
 		return
 	}
 
-	if err := ctl.Service.Reject(uint(appID), req.Reason, req.AdminID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var app entity.RestaurantApplication
+	if err := ctl.DB.First(&app, appID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "application not found"})
+		return
+	}
+	if app.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot reject with status " + app.Status})
+		return
+	}
+
+	now := time.Now()
+	app.Status = "rejected"
+	app.ReviewedAt = &now
+	app.AdminID = req.AdminID
+	app.RejectReason = &req.Reason
+
+	if err := ctl.DB.Save(&app).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
