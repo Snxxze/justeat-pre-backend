@@ -8,6 +8,8 @@ type Rider struct {
 	gorm.Model
 	VehiclePlate string `json:"vehiclePlate"`
 	License      string `json:"license"`
+	NationalID		string	`json:"nationalId"`
+	Zone 					string `json:"zone"`
 	DriveCard     string   `json:"driveCard"`
 
 	RiderStatusID uint        `json:"riderStatusId"`

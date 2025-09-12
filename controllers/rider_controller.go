@@ -205,7 +205,9 @@ func normalizePM(code *string) string {
 
 func (h *RiderController) SetAvailability(c *gin.Context) {
 	uid := c.GetUint("userId")
-	var req struct{ Status string `json:"status" binding:"required"` }
+	var req struct {
+		Status string `json:"status" binding:"required"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -364,10 +366,15 @@ func (h *RiderController) Complete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-/* =========================
-   LIST AVAILABLE / STATUS / CURRENT WORK (คงเดิม)
-========================= */
 
+// ---------- HELPER ----------
+func getPaymentStatusID(db *gorm.DB, name string) uint {
+	var ps entity.PaymentStatus
+	db.Where("status_name=?", name).First(&ps)
+	return ps.ID
+}
+
+// ---------- LIST AVAILABLE ----------
 func (h *RiderController) ListAvailable(c *gin.Context) {
 	preparingID := getOrderStatusID(h.DB, "Preparing")
 	var rows []struct {
@@ -454,6 +461,112 @@ func getPaymentStatusID(db *gorm.DB, name string) uint {
 	db.Where("status_name=?", name).First(&ps)
 	return ps.ID
 }
+type RiderProfileResponse struct {
+	ID          uint   `json:"id"`
+	FirstName   string `json:"firstName"`
+	LastName    string `json:"lastName"`
+	Email       string `json:"email"`
+	PhoneNumber string `json:"phoneNumber"`
+	Address     string `json:"address"`
+	Avatar      string `json:"avatarBase64,omitempty"`
+
+	VehiclePlate string `json:"vehiclePlate"`
+	License      string `json:"license"`
+	DriveCard    string `json:"driveCard"`
+
+	Status string `json:"status"`
+}
+
+func (h *RiderController) GetProfile(c *gin.Context) {
+	uid := c.GetUint("userId")
+
+	var rider entity.Rider
+	if err := h.DB.
+		Preload("User").
+		Preload("RiderStatus").
+		Where("user_id = ?", uid).
+		First(&rider).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "rider not found"})
+		return
+	}
+
+	resp := gin.H{
+		"userId":       rider.User.ID,
+		"firstName":    rider.User.FirstName,
+		"lastName":     rider.User.LastName,
+		"phoneNumber":  rider.User.PhoneNumber,
+		"avatarBase64": rider.User.AvatarBase64,
+
+		"riderId":      rider.ID,
+		"nationalId":   rider.NationalID,
+		"vehiclePlate": rider.VehiclePlate,
+		"zone":         rider.Zone,
+		"license":      rider.License,
+		"driveCard":    rider.DriveCard, // base64 (ไม่มี header)
+		"status":       rider.RiderStatus.StatusName,
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// PUT /rider/me
+func (h *RiderController) UpdateMe(c *gin.Context) {
+	uid := c.GetUint("userId")
+
+	// หา rider ของ user
+	var rider entity.Rider
+	if err := h.DB.Where("user_id = ?", uid).First(&rider).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "rider not found"})
+		return
+	}
+
+	// รับ request
+	var req struct {
+		NationalID      string  `json:"nationalId"`
+		VehiclePlate    string  `json:"vehiclePlate"`
+		Zone            string  `json:"zone"`
+		License         string  `json:"license"`
+		DriveCardBase64 *string `json:"driveCardBase64"` // undefined = ไม่แตะ, "" = ลบ, dataURL = อัปเดต
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// เตรียมค่าอัปเดต
+	updates := map[string]interface{}{
+		"national_id":   strings.TrimSpace(req.NationalID),
+		"vehicle_plate": strings.TrimSpace(req.VehiclePlate),
+		"zone":          strings.TrimSpace(req.Zone),
+		"license":       strings.TrimSpace(req.License),
+	}
+
+	// การอัปเดต DriveCard
+	if req.DriveCardBase64 != nil {
+		val := *req.DriveCardBase64
+		if strings.HasPrefix(val, "data:") {
+			// ถ้า FE ส่งมาเป็น dataURL → ตัด header ออก
+			parts := strings.SplitN(val, ",", 2)
+			if len(parts) == 2 {
+				updates["drive_card"] = parts[1]
+			}
+		} else {
+			// อาจเป็น "" (ลบ) หรือ base64 ตรง ๆ
+			updates["drive_card"] = val
+		}
+	}
+
+	// บันทึก
+	if err := h.DB.Model(&rider).Updates(updates).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+
+// ---------- HELPER ----------
 func getRiderStatusID(db *gorm.DB, name string) uint {
 	var rs entity.RiderStatus
 	db.Where("status_name=?", name).First(&rs)

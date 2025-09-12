@@ -11,7 +11,9 @@ type RiderApplication struct {
 	gorm.Model
 	VehiclePlate string `json:"vehiclePlate"`
 	License      string `json:"license"`
-	DriveCar     string `json:"driveCarPicture" gorm:"column:drive_car_picture;type:longtext"` // base64
+	NationalID   string `json:"nationalId"`
+	Zone         string `json:"zone"`
+	DriveCard    string `json:"driveCard"`
 
 	// ใครยื่น
 	UserID uint `json:"userId" gorm:"index"`

@@ -21,8 +21,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	//Repositories
 	// ------------------------------------------------------------
 	userRepo := repository.NewUserRepository(db)
-	cartRepo := repository.NewCartRepository(db)
-	orderRepo := repository.NewOrderRepository(db)
 	chatRepo := repository.NewChatRepository(db)
 
 
@@ -31,8 +29,6 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// ------------------------------------------------------------
 	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)	
 	userPromoService := services.NewUserPromotionService(db)
-
-	cartSvc := services.NewCartService(db, cartRepo, orderRepo)
 
 	chatService := services.NewChatService(db, chatRepo)
 
@@ -46,11 +42,11 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	authController := controllers.NewAuthController(authService)
 	menuController := controllers.NewMenuController(db)
 	reportController := controllers.NewReportController(db)
-	rAppController := controllers.NewRestaurantApplicationController(db)
+	rAppController := controllers.NewRestaurantApplicationController(db, cfg)
 	riderAppCtl := controllers.NewRiderApplicationController(db)
 	
 	ownerOrderCtl := controllers.NewOwnerOrderController(db)
-	cartCtl := controllers.NewCartController(cartSvc)
+	cartCtl := controllers.NewCartController(db)
 	riderCtl := controllers.NewRiderController(db)
 	chatController := controllers.NewChatController(chatService)
 	reviewCtl := controllers.NewReviewController(db)
@@ -110,6 +106,9 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// ---------- Rider ----------
 	riderGroup := r.Group("/rider", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
+		riderGroup.GET("/me", riderCtl.GetProfile)
+    riderGroup.PUT("/me", riderCtl.UpdateMe) 
+
 		riderGroup.PATCH("/me/availability", riderCtl.SetAvailability)
 		riderGroup.GET("/me/status", riderCtl.GetStatus)
 		riderGroup.GET("/works/current", riderCtl.GetCurrentWork)
