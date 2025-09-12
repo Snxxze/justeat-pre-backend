@@ -348,3 +348,23 @@ func (rc *ReviewController) DetailForMe(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "review": rc.presentReview(rev)})
 }
+
+// DELETE /reviews/:id (Protected) — ลบรีวิวของตัวเองเท่านั้น
+func (rc *ReviewController) Delete(c *gin.Context) {
+	uid, ok := mustUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "error": "unauthorized"})
+		return
+	}
+
+	id, _ := strconv.Atoi(c.Param("id"))
+
+	// ตรวจว่าเป็นของตัวเอง
+	if err := rc.DB.Where("id = ? AND user_id = ?", id, uid).
+		Delete(&entity.Review{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
