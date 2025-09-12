@@ -41,7 +41,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	reportService := services.NewReportService(reportRepo)
 	rAppService := services.NewRestaurantApplicationService(rAppRepo)
 	riderAppSvc := services.NewRiderApplicationService(riderAppRepo, riderRepo)
-	
+
 	userPromoService := services.NewUserPromotionService(db)
 
 	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
@@ -69,7 +69,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	riderCtl := controllers.NewRiderController(riderSvc)
 	chatController := controllers.NewChatController(chatService)
 	reviewCtl := controllers.NewReviewController(db)
-	
+
 	userPromoCtrl := controllers.NewUserPromotionController(userPromoService)
 	adminCtrl := controllers.NewAdminController(db)
 
@@ -123,6 +123,11 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	// ---------- Rider ----------
 	riderGroup := r.Group("/rider", middlewares.AuthMiddleware(cfg.JWTSecret))
 	{
+		// NEW: โปรไฟล์ไรเดอร์
+		riderGroup.GET("/me", riderCtl.Me)
+		riderGroup.PUT("/me", riderCtl.UpdateMe)
+
+		// ของเดิม
 		riderGroup.PATCH("/me/availability", riderCtl.SetAvailability)
 		riderGroup.GET("/me/status", riderCtl.GetStatus)
 		riderGroup.GET("/works/current", riderCtl.GetCurrentWork)
@@ -226,13 +231,13 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	user := r.Group("/user")
 	user.Use(middlewares.AuthMiddleware(cfg.JWTSecret)) // ตรวจ JWT อย่างเดียว ไม่บังคับ role
 	{
-		user.GET("/promotions", userPromoCtrl.List)                // ดูรายการที่ user คนนั้นเก็บไว้
-		user.POST("/promotions", userPromoCtrl.SavePromotion)      // body: { promoId } หรือ { promotionId }
-		user.POST("/promotions/:id", userPromoCtrl.SavePromotion)  // หรือ path param
+		user.GET("/promotions", userPromoCtrl.List)               // ดูรายการที่ user คนนั้นเก็บไว้
+		user.POST("/promotions", userPromoCtrl.SavePromotion)     // body: { promoId } หรือ { promotionId }
+		user.POST("/promotions/:id", userPromoCtrl.SavePromotion) // หรือ path param
 		user.POST("/promotions/:id/use", userPromoCtrl.UsePromotion)
 	}
 
-	// ---------- Public 
+	// ---------- Public
 	r.GET("/promotions", controllers.ListActivePromotions(db))
 	r.GET("/restaurants/:id/reviews", reviewCtl.ListForRestaurant)
 

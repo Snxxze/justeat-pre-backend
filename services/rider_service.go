@@ -1,7 +1,9 @@
+// services/rider_service.go
 package services
 
 import (
 	"backend/repository"
+	"backend/entity" // << สำคัญ: สำหรับ User/Rider entity
 	"errors"
 	"sync"
 	"time"
@@ -160,27 +162,95 @@ func (s *RiderService) ListAvailable() ([]repository.AvailableOrderRow, error) {
 }
 
 func (s *RiderService) GetStatus(userID uint) (map[string]any, error) {
-    if err := s.initIDs(); err != nil {
-        return nil, err
-    }
-    r, err := s.RiderRepo.GetByUserID(userID)
-    if err != nil {
-        return nil, err
-    }
-    return map[string]any{
-        "status":    r.RiderStatus.StatusName,     // ✅ ได้ชื่อจริง เช่น "ONLINE"
-        "isWorking": r.RiderStatusID != s.StatusOfflineID,
-    }, nil
+	if err := s.initIDs(); err != nil {
+		return nil, err
+	}
+	r, err := s.RiderRepo.GetByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"status":    r.RiderStatus.StatusName, // เช่น "ONLINE"
+		"isWorking": r.RiderStatusID != s.StatusOfflineID,
+	}, nil
 }
 
-
 func (s *RiderService) GetCurrentWork(userID uint) (*repository.AvailableOrderRow, error) {
-    if err := s.initIDs(); err != nil {
-        return nil, err
-    }
-    r, err := s.RiderRepo.GetByUserID(userID)
-    if err != nil {
-        return nil, err
-    }
-    return s.WorkRepo.FindActiveWork(r.ID)
+	if err := s.initIDs(); err != nil {
+		return nil, err
+	}
+	r, err := s.RiderRepo.GetByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.WorkRepo.FindActiveWork(r.ID)
+}
+
+// ===================== โปรไฟล์ Rider (ใหม่) =====================
+
+// ---- DTO สำหรับโปรไฟล์ ----
+type ProfileSnapshot struct {
+	User  entity.User
+	Rider *entity.Rider
+}
+
+type UpsertRiderProfileInput struct {
+	NationalID   string
+	VehiclePlate string
+	Zone         string
+	License      string
+	// nil = ไม่แตะรูป, "" = ลบรูป, "xxxxx" = base64 (strip แล้ว)
+	DriveCardB64 *string
+}
+
+// ดึง snapshot โปรไฟล์ (users + riders) ของ user ที่ล็อกอิน
+func (s *RiderService) GetProfileSnapshot(userID uint) (*ProfileSnapshot, error) {
+	var u entity.User
+	if err := s.DB.First(&u, userID).Error; err != nil {
+		return nil, err
+	}
+
+	var r entity.Rider
+	if err := s.DB.Where("user_id = ?", userID).First(&r).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &ProfileSnapshot{User: u, Rider: nil}, nil
+		}
+		return nil, err
+	}
+	return &ProfileSnapshot{User: u, Rider: &r}, nil
+}
+
+// สร้าง/อัปเดต โปรไฟล์ rider ของ user นี้
+func (s *RiderService) UpsertRiderProfile(userID uint, in UpsertRiderProfileInput) error {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		var r entity.Rider
+		err := tx.Where("user_id = ?", userID).First(&r).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// create ใหม่
+				r = entity.Rider{
+					UserID:       userID,
+					NationalID:   in.NationalID,
+					VehiclePlate: in.VehiclePlate,
+					Zone:         in.Zone,
+					License:      in.License,
+				}
+				if in.DriveCardB64 != nil {
+					r.DriveCard = *in.DriveCardB64 // ""=ลบ, "xxxxx"=รูปใหม่
+				}
+				return tx.Create(&r).Error
+			}
+			return err
+		}
+
+		// update ของเดิม
+		r.NationalID = in.NationalID
+		r.VehiclePlate = in.VehiclePlate
+		r.Zone = in.Zone
+		r.License = in.License
+		if in.DriveCardB64 != nil {
+			r.DriveCard = *in.DriveCardB64 // ""=ลบ, "xxxxx"=รูปใหม่
+		}
+		return tx.Save(&r).Error
+	})
 }
