@@ -2,6 +2,7 @@
 package controllers
 
 import (
+	"backend/configs"
 	"backend/entity"
 	"backend/utils"
 	"net/http"
@@ -15,10 +16,11 @@ import (
 
 type RestaurantApplicationController struct {
 	DB *gorm.DB
+	Config *configs.Config
 }
 
-func NewRestaurantApplicationController(db *gorm.DB) *RestaurantApplicationController {
-	return &RestaurantApplicationController{DB: db}
+func NewRestaurantApplicationController(db *gorm.DB, cfg *configs.Config) *RestaurantApplicationController {
+	return &RestaurantApplicationController{DB: db, Config: cfg}
 }
 
 // ====== Request DTO ======
@@ -186,7 +188,7 @@ type ApproveReq struct {
 func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 	appID, _ := strconv.Atoi(c.Param("id"))
 
-	// เอา userId ของคนที่ login
+	// --- ตรวจสอบว่าเป็น Admin ---
 	uidAny, ok := c.Get("userId")
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
@@ -194,14 +196,13 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 	}
 	userID := uidAny.(uint)
 
-	// หา admin จาก user_id
 	var admin entity.Admin
 	if err := ctl.DB.Where("user_id = ?", userID).First(&admin).Error; err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "not an admin"})
 		return
 	}
 
-	// หาใบสมัคร
+	// --- หาใบสมัคร ---
 	var app entity.RestaurantApplication
 	if err := ctl.DB.First(&app, uint(appID)).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "application not found"})
@@ -212,10 +213,9 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 		return
 	}
 
-	// set ค่า status และ admin
-	statusID := uint(1)
+	// --- เตรียมสร้างร้าน ---
+	statusID := uint(1) // สมมติ 1 = "open"
 	now := time.Now()
-
 	rest := entity.Restaurant{
 		Name:                 app.Name,
 		Address:              app.Address,
@@ -227,9 +227,10 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 		RestaurantStatusID:   statusID,
 		UserID:               app.OwnerUserID,
 		AdminID:              &admin.ID,
-		PromptPay:            app.PromptPay, 
+		PromptPay:            app.PromptPay,
 	}
 
+	// --- Transaction ---
 	tx := ctl.DB.Begin()
 
 	// สร้างร้าน
@@ -239,7 +240,7 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 		return
 	}
 
-	// update role owner
+	// อัปเดต role → owner
 	if err := tx.Model(&entity.User{}).
 		Where("id = ?", app.OwnerUserID).
 		Where("role = '' OR role = 'customer'").
@@ -249,10 +250,10 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 		return
 	}
 
-	// update application
+	// อัปเดต application
 	app.Status = "approved"
 	app.ReviewedAt = &now
-	app.AdminID = &admin.ID // ✅ ติด admin ที่อนุมัติ
+	app.AdminID = &admin.ID
 	if err := tx.Save(&app).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -261,17 +262,36 @@ func (ctl *RestaurantApplicationController) Approve(c *gin.Context) {
 
 	tx.Commit()
 
+	// --- โหลด owner ใหม่ (หลัง role เปลี่ยนแล้ว) ---
 	var owner entity.User
 	ctl.DB.First(&owner, app.OwnerUserID)
 
-	c.JSON(http.StatusOK, ApproveResponse{
-		ApplicationID: uint(appID),
-		RestaurantID:  rest.ID,
-		Status:        "approved",
-		OwnerUserID:   owner.ID,
-		NewRole:       owner.Role,
+	// --- Generate token ใหม่ ---
+	accessToken, err := utils.GenerateToken(owner.ID, owner.Role, ctl.Config.JWTSecret, ctl.Config.JWTTTL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot generate new token"})
+		return
+	}
+
+	// (ถ้าอยากมี refreshToken ด้วย → GenerateToken อีกตัวด้วย TTL ยาวกว่า)
+	refreshToken, err := utils.GenerateToken(owner.ID, owner.Role, ctl.Config.JWTSecret, time.Hour*24*7)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot generate refresh token"})
+		return
+	}
+
+	// --- ส่งกลับ FE ---
+	c.JSON(http.StatusOK, gin.H{
+		"applicationId": app.ID,
+		"restaurantId":  rest.ID,
+		"status":        "approved",
+		"ownerUserId":   owner.ID,
+		"newRole":       owner.Role,
+		"accessToken":   accessToken,
+		"refreshToken":  refreshToken,
 	})
 }
+
 
 
 // ====== Admin ปฏิเสธ ======

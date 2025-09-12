@@ -23,7 +23,9 @@ func NewRiderApplicationController(db *gorm.DB) *RiderApplicationController {
 type ApplyRiderReq struct {
 	VehiclePlate string `json:"vehiclePlate" binding:"required"`
 	License      string `json:"license" binding:"required"`
-	DriveCar     string `json:"driveCarPicture"` // base64
+	NationalID   string `json:"nationalId" binding:"required"`
+	Zone         string `json:"zone" binding:"required"`
+	DriveCard    string `json:"driveCard"` // base64
 }
 
 // -------- Response DTO --------
@@ -31,16 +33,17 @@ type RiderApplicationResponse struct {
 	ID           uint   `json:"id"`
 	VehiclePlate string `json:"vehiclePlate"`
 	License      string `json:"license"`
-	DriveCar     string `json:"driveCarPicture"`
-
-	Status     string `json:"status"`
-	SubmittedAt string `json:"submittedAt"`
-
-	User struct {
-		ID        uint   `json:"id"`
-		FirstName string `json:"firstName"`
-		LastName  string `json:"lastName"`
-		Email     string `json:"email"`
+	NationalID   string `json:"nationalId"`
+	Zone         string `json:"zone"`
+	DriveCard    string `json:"driveCard"` 
+	Status       string `json:"status"`
+	SubmittedAt  string `json:"submittedAt"`
+	User         struct {
+		ID          uint   `json:"id"`
+		FirstName   string `json:"firstName"`
+		LastName    string `json:"lastName"`
+		Email       string `json:"email"`
+		PhoneNumber string `json:"phoneNumber"`
 	} `json:"user"`
 }
 
@@ -81,7 +84,9 @@ func (ctl *RiderApplicationController) Apply(c *gin.Context) {
 	app := entity.RiderApplication{
 		VehiclePlate: req.VehiclePlate,
 		License:      req.License,
-		DriveCar:     req.DriveCar,
+		NationalID:   req.NationalID,
+		Zone:         req.Zone,
+		DriveCard:    req.DriveCard,
 		UserID:       userID,
 		Status:       "pending",
 	}
@@ -121,7 +126,9 @@ func (ctl *RiderApplicationController) ListMine(c *gin.Context) {
 			ID:           app.ID,
 			VehiclePlate: app.VehiclePlate,
 			License:      app.License,
-			DriveCar:     app.DriveCar,
+			NationalID:   app.NationalID,
+			Zone:         app.Zone,
+			DriveCard:    app.DriveCard,
 			Status:       app.Status,
 			SubmittedAt:  app.CreatedAt.Format(time.RFC3339),
 		}
@@ -129,6 +136,7 @@ func (ctl *RiderApplicationController) ListMine(c *gin.Context) {
 		item.User.FirstName = app.User.FirstName
 		item.User.LastName = app.User.LastName
 		item.User.Email = app.User.Email
+		item.User.PhoneNumber = app.User.PhoneNumber
 		resp = append(resp, item)
 	}
 
@@ -151,7 +159,9 @@ func (ctl *RiderApplicationController) List(c *gin.Context) {
 			ID:           app.ID,
 			VehiclePlate: app.VehiclePlate,
 			License:      app.License,
-			DriveCar:     app.DriveCar,
+			NationalID:   app.NationalID,
+			Zone:         app.Zone,
+			DriveCard:    app.DriveCard,
 			Status:       app.Status,
 			SubmittedAt:  app.CreatedAt.Format(time.RFC3339),
 		}
@@ -159,6 +169,7 @@ func (ctl *RiderApplicationController) List(c *gin.Context) {
 		item.User.FirstName = app.User.FirstName
 		item.User.LastName = app.User.LastName
 		item.User.Email = app.User.Email
+		item.User.PhoneNumber = app.User.PhoneNumber
 		resp = append(resp, item)
 	}
 
@@ -209,7 +220,9 @@ func (ctl *RiderApplicationController) Approve(c *gin.Context) {
 		UserID:        app.UserID,
 		VehiclePlate:  app.VehiclePlate,
 		License:       app.License,
-		DriveCard:     app.DriveCar,
+		NationalID:    app.NationalID,
+		Zone:          app.Zone,
+		DriveCard:     app.DriveCard,
 		RiderStatusID: statusID,
 		AdminID:       &admin.ID,
 	}
@@ -222,7 +235,7 @@ func (ctl *RiderApplicationController) Approve(c *gin.Context) {
 		return
 	}
 
-	// อัปเกรด role user เป็น rider
+	// อัปเดต role ของ user เป็น rider
 	if err := tx.Model(&entity.User{}).
 		Where("id = ?", app.UserID).
 		Where("role = '' OR role = 'customer' OR role IS NULL").
