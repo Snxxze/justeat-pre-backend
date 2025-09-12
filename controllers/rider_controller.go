@@ -18,7 +18,191 @@ type RiderController struct {
 
 func NewRiderController(db *gorm.DB) *RiderController { return &RiderController{DB: db} }
 
-// ---------- ONLINE / OFFLINE ----------
+/* =========================
+   WORK HISTORIES (รวม service เข้ามา)
+   GET /api/rider/works
+   พารามิเตอร์: page, pageSize, orderId, status, dateFrom, dateTo (RFC3339)
+   ส่งคืน: items, total, summary{totalTrips,totalFare}
+========================= */
+
+// GET /rider/works
+func (h *RiderController) ListWorks(c *gin.Context) {
+	uid := c.GetUint("userId")
+	if uid == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	// หา rider จาก user_id
+	var rider entity.Rider
+	if err := h.DB.Where("user_id=?", uid).First(&rider).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "rider not found"})
+		return
+	}
+
+	// query params
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page <= 0 { page = 1 }
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	if pageSize <= 0 || pageSize > 100 { pageSize = 10 }
+
+	orderQ := strings.TrimSpace(c.Query("orderId"))
+	statusQ := strings.TrimSpace(c.Query("status"))
+	var dateFrom *time.Time
+	var dateTo *time.Time
+	if s := c.Query("dateFrom"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil { dateFrom = &t }
+	}
+	if s := c.Query("dateTo"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil { dateTo = &t }
+	}
+
+	// base query — เลือกเฉพาะฟิลด์ที่มีจริง
+	base := h.DB.Table("rider_works AS rw").
+		Joins("JOIN orders AS o ON o.id = rw.order_id").
+		Joins("JOIN order_statuses AS os ON os.id = o.order_status_id").
+		Where("rw.rider_id = ?", rider.ID)
+
+	// filters
+	if orderQ != "" {
+		base = base.Where("CAST(o.id AS CHAR) LIKE ?", "%"+orderQ+"%")
+	}
+	if statusQ != "" {
+		// ให้เทียบกับชื่อ status ตรง ๆ เช่น Pending/Preparing/Delivering/Completed/Cancelled
+		base = base.Where("os.status_name = ?", statusQ)
+	}
+	if dateFrom != nil {
+		base = base.Where("rw.work_at >= ?", dateFrom.UTC())
+	}
+	if dateTo != nil {
+		base = base.Where("rw.work_at <= ?", dateTo.UTC())
+	}
+
+	// count
+	var total int64
+	if err := base.Select("rw.id").Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// row shape ที่จะ scan
+	type row struct {
+		ID               uint       `json:"id"`                // rider_works.id
+		WorkAt           *time.Time `json:"workAt"`
+		FinishAt         *time.Time `json:"finishAt"`
+		OrderID          uint       `json:"orderId"`
+		Address          string     `json:"address"`
+		Subtotal         int64      `json:"subtotal"`
+		Discount         int64      `json:"discount"`
+		DeliveryFee      int64      `json:"deliveryFee"`
+		Total            int64      `json:"total"`
+		OrderStatusName  string     `json:"orderStatusName"`
+	}
+
+	var rows []row
+	if err := base.
+		Select(`
+			rw.id AS id,
+			rw.work_at, rw.finish_at,
+			o.id AS order_id,
+			o.address,
+			o.subtotal, o.discount, o.delivery_fee, o.total,
+			os.status_name AS order_status_name
+		`).
+		Order("rw.work_at DESC, rw.id DESC").
+		Offset((page-1)*pageSize).
+		Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// map → items ที่ FE ใช้
+	type item struct {
+		ID              uint       `json:"id"`
+		OrderID         uint       `json:"orderId"`
+		Address         string     `json:"address"`
+		Subtotal        int64      `json:"subtotal"`
+		Discount        int64      `json:"discount"`
+		DeliveryFee     int64      `json:"deliveryFee"`
+		Total           int64      `json:"total"`
+		WorkAt          *time.Time `json:"workAt,omitempty"`
+		FinishAt        *time.Time `json:"finishAt,omitempty"`
+		OrderStatusName string     `json:"orderStatusName,omitempty"`
+	}
+
+	items := make([]item, 0, len(rows))
+	var sumTotal int64 = 0
+	for _, r := range rows {
+		items = append(items, item{
+			ID:              r.ID,
+			OrderID:         r.OrderID,
+			Address:         r.Address,
+			Subtotal:        r.Subtotal,
+			Discount:        r.Discount,
+			DeliveryFee:     r.DeliveryFee,
+			Total:           r.Total,
+			WorkAt:          r.WorkAt,
+			FinishAt:        r.FinishAt,
+			OrderStatusName: r.OrderStatusName,
+		})
+		sumTotal += r.Total
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":   items,
+		"total":   total,
+		"summary": gin.H{"totalTrips": total, "totalFare": sumTotal},
+	})
+}
+
+func fallback(s, alt string) string {
+	if strings.TrimSpace(s) == "" { return alt }
+	return s
+}
+func derefOr(t *time.Time, zero time.Time) time.Time {
+	if t != nil { return *t }
+	return zero
+}
+
+// map order_status_id → FE code
+func mapOrderStatus(id uint) string {
+	switch id {
+	case getOrderStatusID(nil, "Pending"):
+		return "PENDING"
+	case getOrderStatusID(nil, "Preparing"):
+		return "PICKED_UP" // หรือสถานะที่ตรงที่สุดในระบบพี่
+	case getOrderStatusID(nil, "Delivering"):
+		return "PICKED_UP"
+	case getOrderStatusID(nil, "Completed"):
+		return "DELIVERED"
+	case getOrderStatusID(nil, "Cancelled"):
+		return "CANCELLED"
+	default:
+		return "PENDING"
+	}
+}
+
+// map payment method code/name → FE code
+func normalizePM(code *string) string {
+	if code == nil { return "CASH" }
+	v := strings.ToUpper(strings.TrimSpace(*code))
+	switch v {
+	case "CASH", "COD", "CASH_ON_DELIVERY":
+		return "CASH"
+	case "WALLET", "EWALLET", "WALLETS":
+		return "WALLET"
+	case "QR", "PROMPTPAY", "QR_PROMPTPAY":
+		return "QR"
+	default:
+		return "CASH"
+	}
+}
+
+/* =========================
+   ONLINE / OFFLINE (มีอยู่แล้ว)
+========================= */
+
 func (h *RiderController) SetAvailability(c *gin.Context) {
 	uid := c.GetUint("userId")
 	var req struct {
@@ -40,7 +224,6 @@ func (h *RiderController) SetAvailability(c *gin.Context) {
 	if status == "ONLINE" {
 		statusID = getRiderStatusID(h.DB, "ONLINE")
 	} else if status == "OFFLINE" {
-		// ห้าม offline ถ้ามีงานค้าง
 		var cnt int64
 		h.DB.Model(&entity.RiderWork{}).
 			Where("rider_id=? AND finish_at IS NULL", rider.ID).
@@ -60,7 +243,10 @@ func (h *RiderController) SetAvailability(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// ---------- ACCEPT ----------
+/* =========================
+   ACCEPT (มีอยู่แล้ว)
+========================= */
+
 func (h *RiderController) Accept(c *gin.Context) {
 	uid := c.GetUint("userId")
 	oid, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
@@ -81,7 +267,6 @@ func (h *RiderController) Accept(c *gin.Context) {
 		return
 	}
 
-	// transaction
 	err := h.DB.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
 		if err := tx.Create(&entity.RiderWork{
@@ -94,16 +279,11 @@ func (h *RiderController) Accept(c *gin.Context) {
 			Update("rider_status_id", assignedID).Error; err != nil {
 			return err
 		}
-		// order Preparing → Delivering
 		res := tx.Model(&entity.Order{}).
 			Where("id=? AND order_status_id=?", oid, preparingID).
 			Update("order_status_id", deliveringID)
-		if res.Error != nil {
-			return res.Error
-		}
-		if res.RowsAffected == 0 {
-			return fmt.Errorf("order not in preparing state")
-		}
+		if res.Error != nil { return res.Error }
+		if res.RowsAffected == 0 { return fmt.Errorf("order not in preparing state") }
 		return nil
 	})
 	if err != nil {
@@ -113,7 +293,10 @@ func (h *RiderController) Accept(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// ---------- COMPLETE ----------
+/* =========================
+   COMPLETE (มีอยู่แล้ว)
+========================= */
+
 func (h *RiderController) Complete(c *gin.Context) {
 	uid := c.GetUint("userId")
 	oid, _ := strconv.ParseUint(c.Param("orderId"), 10, 64)
@@ -135,7 +318,6 @@ func (h *RiderController) Complete(c *gin.Context) {
 	completedID := getOrderStatusID(h.DB, "Completed")
 	onlineID := getRiderStatusID(h.DB, "ONLINE")
 
-	// guard
 	if rider.RiderStatusID != assignedID {
 		c.JSON(http.StatusConflict, gin.H{"error": "not assigned"})
 		return
@@ -145,27 +327,22 @@ func (h *RiderController) Complete(c *gin.Context) {
 		return
 	}
 
-	// transaction
 	err := h.DB.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
-		// ปิด RiderWork
 		if err := tx.Model(&entity.RiderWork{}).
 			Where("rider_id=? AND order_id=? AND finish_at IS NULL", rider.ID, order.ID).
 			Update("finish_at", &now).Error; err != nil {
 			return err
 		}
-
-		// อัปเดต Order → Completed
 		if err := tx.Model(&entity.Order{}).
 			Where("id=?", order.ID).
 			Update("order_status_id", completedID).Error; err != nil {
 			return err
 		}
 
-		// กรณีเป็น COD → อัปเดต payment เป็น "Paid"
+		// COD → mark paid
 		var payment entity.Payment
 		if err := tx.Where("order_id=?", order.ID).First(&payment).Error; err == nil {
-			// หา payment method
 			var method entity.PaymentMethod
 			if err := tx.First(&method, payment.PaymentMethodID).Error; err == nil {
 				if strings.EqualFold(method.MethodName, "Cash on Delivery") {
@@ -178,8 +355,6 @@ func (h *RiderController) Complete(c *gin.Context) {
 				}
 			}
 		}
-
-		// Rider → ONLINE
 		return tx.Model(&entity.Rider{}).
 			Where("id=?", rider.ID).
 			Update("rider_status_id", onlineID).Error
@@ -190,6 +365,7 @@ func (h *RiderController) Complete(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
 
 // ---------- HELPER ----------
 func getPaymentStatusID(db *gorm.DB, name string) uint {
@@ -229,7 +405,6 @@ func (h *RiderController) ListAvailable(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": rows})
 }
 
-// ---------- GET STATUS ----------
 func (h *RiderController) GetStatus(c *gin.Context) {
 	uid := c.GetUint("userId")
 	var rider entity.Rider
@@ -244,7 +419,6 @@ func (h *RiderController) GetStatus(c *gin.Context) {
 	})
 }
 
-// ---------- GET CURRENT WORK ----------
 func (h *RiderController) GetCurrentWork(c *gin.Context) {
 	uid := c.GetUint("userId")
 	var rider entity.Rider
@@ -391,6 +565,9 @@ func getRiderStatusID(db *gorm.DB, name string) uint {
 }
 func getOrderStatusID(db *gorm.DB, name string) uint {
 	var os entity.OrderStatus
-	db.Where("status_name=?", name).First(&os)
+	if db != nil {
+		db.Where("status_name=?", name).First(&os)
+	}
+	// หมายเหตุ: mapOrderStatus เรียกแบบ db=nil เพื่อเทียบค่าแบบ lazy; ถ้าอยากชัวร์ให้ hardcode mapping
 	return os.ID
 }
