@@ -132,10 +132,10 @@ func (rc *ReportController) UpdateReportStatus(c *gin.Context) {
 
 	// ✅ validate status
 	validStatuses := map[string]bool{
-		"pending":      true,
-		"in_progress":  true,
-		"resolved":     true,
-		"closed":       true,
+		"pending":     true,
+		"in_progress": true,
+		"resolved":    true,
+		"closed":      true,
 	}
 	if !validStatuses[req.Status] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status"})
@@ -150,4 +150,28 @@ func (rc *ReportController) UpdateReportStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "status updated"})
+}
+
+// ---------- Admin: DELETE /admin/reports/:id ----------
+func (rc *ReportController) DeleteReport(c *gin.Context) {
+	// ดึง role จาก context
+	roleAny, ok := c.Get("role")
+	if !ok || roleAny.(string) != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: admin only"})
+		return
+	}
+
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report id"})
+		return
+	}
+
+	if err := rc.DB.Delete(&entity.Report{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete report"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "report deleted"})
 }

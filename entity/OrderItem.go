@@ -9,6 +9,7 @@ type OrderItem struct {
 	Qty       int   `json:"qty"`
 	UnitPrice int64 `json:"unitPrice"`
 	Total     int64 `json:"total"`
+	Note string `json:"note"`
 
 	OrderID uint  `json:"orderId"`
 	Order   Order `json:"-"` // preload แค่ตอนต้องการ order detail

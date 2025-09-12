@@ -21,26 +21,19 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	//Repositories
 	// ------------------------------------------------------------
 	userRepo := repository.NewUserRepository(db)
-	restRepo := repository.NewRestaurantRepository(db)
 	cartRepo := repository.NewCartRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
-	riderRepo := repository.NewRiderRepository(db)
-	riderWorkRepo := repository.NewRiderWorkRepository(db)
-	riderAppRepo := repository.NewRiderApplicationRepository(db)
 	chatRepo := repository.NewChatRepository(db)
-	paymentRepo := repository.NewPaymentRepository(db)
+
 
 	// ------------------------------------------------------------
 	// Services
 	// ------------------------------------------------------------
-	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)
-	riderAppSvc := services.NewRiderApplicationService(riderAppRepo, riderRepo)
-	
+	authService := services.NewAuthService(userRepo, cfg.JWTSecret, cfg.JWTTTL)	
 	userPromoService := services.NewUserPromotionService(db)
 
-	orderSvc := services.NewOrderService(db, orderRepo, cartRepo, restRepo)
 	cartSvc := services.NewCartService(db, cartRepo, orderRepo)
-	riderSvc := services.NewRiderService(db, riderRepo, riderWorkRepo, orderRepo, paymentRepo)
+
 	chatService := services.NewChatService(db, chatRepo)
 
 	// Hub WS
@@ -54,11 +47,11 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 	menuController := controllers.NewMenuController(db)
 	reportController := controllers.NewReportController(db)
 	rAppController := controllers.NewRestaurantApplicationController(db)
-	riderAppCtl := controllers.NewRiderApplicationController(riderAppSvc)
+	riderAppCtl := controllers.NewRiderApplicationController(db)
 	
-	ownerOrderCtl := controllers.NewOwnerOrderController(orderSvc)
+	ownerOrderCtl := controllers.NewOwnerOrderController(db)
 	cartCtl := controllers.NewCartController(cartSvc)
-	riderCtl := controllers.NewRiderController(riderSvc)
+	riderCtl := controllers.NewRiderController(db)
 	chatController := controllers.NewChatController(chatService)
 	reviewCtl := controllers.NewReviewController(db)
 	orderCtl := controllers.NewOrderController(db)
@@ -199,7 +192,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 
 	// ---------------- admin ---------------
 	admin := r.Group("/admin")
-	admin.Use(middlewares.AuthMiddleware(cfg.JWTSecret))
+	admin.Use(middlewares.AuthMiddleware(cfg.JWTSecret, "admin"))
 	{
 		admin.GET("/dashboard", adminCtrl.Dashboard)
 		admin.GET("/restaurant", adminCtrl.Restaurants)
@@ -207,6 +200,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, cfg *configs.Config) {
 
 		admin.GET("/reports", reportController.ListAllReports)
 		admin.PATCH("reports/:id/status", reportController.UpdateReportStatus)
+		admin.DELETE("/reports/:id", reportController.DeleteReport)
 
 		// Promotion Management
 		admin.GET("/promotion", adminCtrl.Promotions)

@@ -1,185 +1,296 @@
+// controllers/rider_application_controller.go
 package controllers
 
 import (
 	"backend/entity"
-	"backend/services"
-	"backend/utils"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-type RiderApplicationController struct{ Service *services.RiderApplicationService }
-
-func NewRiderApplicationController(s *services.RiderApplicationService) *RiderApplicationController {
-	return &RiderApplicationController{Service: s}
+type RiderApplicationController struct {
+	DB *gorm.DB
 }
 
-// ===== Request DTO =====
+func NewRiderApplicationController(db *gorm.DB) *RiderApplicationController {
+	return &RiderApplicationController{DB: db}
+}
+
+// -------- Request DTO --------
 type ApplyRiderReq struct {
-	VehiclePlate    string `json:"vehiclePlate" binding:"required"`
-	License         string `json:"license" binding:"required"`
-	DriveCarPicture string `json:"driveCarPicture"` // base64
+	VehiclePlate string `json:"vehiclePlate" binding:"required"`
+	License      string `json:"license" binding:"required"`
+	DriveCar     string `json:"driveCarPicture"` // base64
 }
 
-// ===== Response DTO =====
-type ApplyResp struct {
+// -------- Response DTO --------
+type RiderApplicationResponse struct {
+	ID           uint   `json:"id"`
+	VehiclePlate string `json:"vehiclePlate"`
+	License      string `json:"license"`
+	DriveCar     string `json:"driveCarPicture"`
+
+	Status     string `json:"status"`
+	SubmittedAt string `json:"submittedAt"`
+
+	User struct {
+		ID        uint   `json:"id"`
+		FirstName string `json:"firstName"`
+		LastName  string `json:"lastName"`
+		Email     string `json:"email"`
+	} `json:"user"`
+}
+
+type ApplyRiderResponse struct {
 	ID     uint   `json:"id"`
 	Status string `json:"status"`
 }
 
-type ListItem struct {
-	ID           uint   `json:"id"`
-	VehiclePlate string `json:"vehiclePlate"`
-	License      string `json:"license"`
-	DriveCar     string `json:"driveCarPicture"` // << สำคัญ: key ที่ FE ใช้
-	Status       string `json:"status"`
-	SubmittedAt  string `json:"submittedAt"`
-	User         struct {
-		FirstName   string `json:"firstName"`
-		LastName    string `json:"lastName"`
-		Email       string `json:"email"`
-		PhoneNumber string `json:"phoneNumber"`
-	} `json:"user"`
-}
-
-type ApproveResp struct {
+type ApproveRiderResponse struct {
 	ApplicationID uint   `json:"applicationId"`
 	RiderID       uint   `json:"riderId"`
 	Status        string `json:"status"`
-	OwnerUserID   uint   `json:"ownerUserId"`
+	UserID        uint   `json:"userId"`
 	NewRole       string `json:"newRole"`
 }
 
-type RejectRiderReq struct {
-	Reason  string `json:"reason" binding:"required"`
-	AdminID *uint  `json:"adminId,omitempty"`
-}
-
-type RejectResp struct {
+type RejectRiderResponse struct {
 	ApplicationID uint   `json:"applicationId"`
 	Status        string `json:"status"`
 	Reason        string `json:"reason"`
 }
 
-// ===== ผู้ใช้ ยื่นสมัคร =====
+// ========== User สมัคร Rider ==========
 func (ctl *RiderApplicationController) Apply(c *gin.Context) {
 	var req ApplyRiderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
+
+	uidAny, ok := c.Get("userId")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID := uidAny.(uint)
 
 	app := entity.RiderApplication{
-		UserID:       utils.CurrentUserID(c),
 		VehiclePlate: req.VehiclePlate,
 		License:      req.License,
-		DriveCar:     req.DriveCarPicture, // เก็บรูป base64 ลงฟิลด์ application
-		// Status = pending เซ็ตใน service
+		DriveCar:     req.DriveCar,
+		UserID:       userID,
+		Status:       "pending",
 	}
 
-	id, err := ctl.Service.Apply(&app)
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
+	if err := ctl.DB.Create(&app).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	c.JSON(http.StatusCreated, ApplyResp{ID: id, Status: "pending"})
+	c.JSON(http.StatusCreated, ApplyRiderResponse{ID: app.ID, Status: "pending"})
 }
 
-// ===== ผู้ใช้ ดูใบสมัครตัวเอง (option: ?status=) =====
+// ========== User ดูใบสมัครของตัวเอง ==========
 func (ctl *RiderApplicationController) ListMine(c *gin.Context) {
-	status := c.DefaultQuery("status", "")
-	userID := utils.CurrentUserID(c)
-
-	apps, err := ctl.Service.ListMine(userID, status)
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
-
-	out := make([]ListItem, 0, len(apps))
-	for _, a := range apps {
-		var it ListItem
-		it.ID = a.ID
-		it.VehiclePlate = a.VehiclePlate
-		it.License = a.License
-		it.Status = a.Status
-		it.SubmittedAt = a.CreatedAt.Format(time.RFC3339)
-		it.User.FirstName = a.User.FirstName
-		it.User.LastName = a.User.LastName
-		it.User.Email = a.User.Email
-		it.User.PhoneNumber = a.User.PhoneNumber
-		out = append(out, it)
+	uidAny, ok := c.Get("userId")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": out})
+	userID := uidAny.(uint)
+
+	status := c.Query("status")
+
+	var apps []entity.RiderApplication
+	q := ctl.DB.Preload("User").Where("user_id = ?", userID).Order("id DESC")
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	if err := q.Find(&apps).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp := []RiderApplicationResponse{}
+	for _, app := range apps {
+		item := RiderApplicationResponse{
+			ID:           app.ID,
+			VehiclePlate: app.VehiclePlate,
+			License:      app.License,
+			DriveCar:     app.DriveCar,
+			Status:       app.Status,
+			SubmittedAt:  app.CreatedAt.Format(time.RFC3339),
+		}
+		item.User.ID = app.User.ID
+		item.User.FirstName = app.User.FirstName
+		item.User.LastName = app.User.LastName
+		item.User.Email = app.User.Email
+		resp = append(resp, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": resp})
 }
 
-// ===== แอดมิน ดูรายการตามสถานะ =====
+// ========== Admin ดูรายการ ==========
 func (ctl *RiderApplicationController) List(c *gin.Context) {
 	status := c.DefaultQuery("status", "pending")
-	apps, err := ctl.Service.List(status)
-	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()}); return }
 
-	out := make([]ListItem, 0, len(apps))
-	for _, a := range apps {
-		var it ListItem
-		it.ID = a.ID
-		it.VehiclePlate = a.VehiclePlate
-		it.License = a.License
-		it.DriveCar = a.DriveCar
-		it.Status = a.Status
-		it.SubmittedAt = a.CreatedAt.Format(time.RFC3339)
-		it.User.FirstName = a.User.FirstName
-		it.User.LastName = a.User.LastName
-		it.User.Email = a.User.Email
-		it.User.PhoneNumber = a.User.PhoneNumber
-		out = append(out, it)
+	var apps []entity.RiderApplication
+	if err := ctl.DB.Preload("User").Where("status = ?", status).Order("id DESC").Find(&apps).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": out})
+
+	resp := []RiderApplicationResponse{}
+	for _, app := range apps {
+		item := RiderApplicationResponse{
+			ID:           app.ID,
+			VehiclePlate: app.VehiclePlate,
+			License:      app.License,
+			DriveCar:     app.DriveCar,
+			Status:       app.Status,
+			SubmittedAt:  app.CreatedAt.Format(time.RFC3339),
+		}
+		item.User.ID = app.User.ID
+		item.User.FirstName = app.User.FirstName
+		item.User.LastName = app.User.LastName
+		item.User.Email = app.User.Email
+		resp = append(resp, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"items": resp})
 }
 
-// ===== แอดมิน อนุมัติ =====
+// ========== Admin อนุมัติ ==========
 func (ctl *RiderApplicationController) Approve(c *gin.Context) {
-    idStr := c.Param("id")
-    appID64, err := strconv.ParseUint(idStr, 10, 64)
-    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"}); return }
+	appID, _ := strconv.Atoi(c.Param("id"))
 
-    var req services.RiderApproveReq
-    if err := c.ShouldBindJSON(&req); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
-    }
+	uidAny, ok := c.Get("userId")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID := uidAny.(uint)
 
-    r, owner, err := ctl.Service.Approve(uint(appID64), req)
-    if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return }
+	// หา admin
+	var admin entity.Admin
+	if err := ctl.DB.Where("user_id = ?", userID).First(&admin).Error; err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "not an admin"})
+		return
+	}
 
-    newRole := owner.Role
-    if req.NewRole != nil && *req.NewRole != "" {
-        newRole = *req.NewRole
-    }
+	var app entity.RiderApplication
+	if err := ctl.DB.First(&app, appID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "application not found"})
+		return
+	}
+	if app.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "application is not pending"})
+		return
+	}
 
-    c.JSON(http.StatusOK, ApproveResp{
-        ApplicationID: uint(appID64),
-        RiderID:       r.ID,
-        Status:        "approved",
-        OwnerUserID:   owner.ID,
-        NewRole:       newRole,
-    })
+	// หา id ของสถานะ ONLINE
+	var statusID uint
+	ctl.DB.Model(&entity.RiderStatus{}).
+		Select("id").Where("status_name = ?", "ONLINE").
+		Scan(&statusID)
+	if statusID == 0 {
+		// fallback: OFFLINE
+		ctl.DB.Model(&entity.RiderStatus{}).
+			Select("id").Where("status_name = ?", "OFFLINE").
+			Scan(&statusID)
+	}
+
+	rider := entity.Rider{
+		UserID:        app.UserID,
+		VehiclePlate:  app.VehiclePlate,
+		License:       app.License,
+		DriveCard:     app.DriveCar,
+		RiderStatusID: statusID,
+		AdminID:       &admin.ID,
+	}
+
+	now := time.Now()
+	tx := ctl.DB.Begin()
+	if err := tx.Create(&rider).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// อัปเกรด role user เป็น rider
+	if err := tx.Model(&entity.User{}).
+		Where("id = ?", app.UserID).
+		Where("role = '' OR role = 'customer' OR role IS NULL").
+		Update("role", "rider").Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	app.Status = "approved"
+	app.ReviewedAt = &now
+	app.AdminID = &admin.ID
+	if err := tx.Save(&app).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	tx.Commit()
+
+	var user entity.User
+	ctl.DB.First(&user, app.UserID)
+
+	c.JSON(http.StatusOK, ApproveRiderResponse{
+		ApplicationID: uint(appID),
+		RiderID:       rider.ID,
+		Status:        "approved",
+		UserID:        user.ID,
+		NewRole:       user.Role,
+	})
 }
 
+// ========== Admin ปฏิเสธ ==========
+type RejectRiderReq struct {
+	Reason string `json:"reason" binding:"required"`
+}
 
-// ===== แอดมิน ปฏิเสธ =====
 func (ctl *RiderApplicationController) Reject(c *gin.Context) {
-	idStr := c.Param("id")
-	appID64, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"}); return }
+	appID, _ := strconv.Atoi(c.Param("id"))
 
 	var req RejectRiderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
-	if err := ctl.Service.Reject(uint(appID64), req.Reason, req.AdminID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}); return
+	var app entity.RiderApplication
+	if err := ctl.DB.First(&app, appID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "application not found"})
+		return
+	}
+	if app.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot reject with status " + app.Status})
+		return
 	}
 
-	c.JSON(http.StatusOK, RejectResp{
-		ApplicationID: uint(appID64),
+	now := time.Now()
+	app.Status = "rejected"
+	app.ReviewedAt = &now
+	app.AdminID = nil
+	app.RejectReason = &req.Reason
+
+	if err := ctl.DB.Save(&app).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, RejectRiderResponse{
+		ApplicationID: uint(appID),
 		Status:        "rejected",
 		Reason:        req.Reason,
 	})
