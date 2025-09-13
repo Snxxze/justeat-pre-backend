@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// ChatHub คือศูนย์กลางของระบบแชทผ่าน WebSocket
 type ChatHub struct {
 	clients    map[uint]map[*websocket.Conn]bool // roomID -> set of clients
 	broadcast  chan BroadcastMessage
@@ -22,17 +23,20 @@ type ChatHub struct {
 	service    *services.ChatService
 }
 
+// Subscription = การสมัครสมาชิกห้อง (1 user ต่อ 1 connection)
 type Subscription struct {
-	Conn   *websocket.Conn
+	Conn   *websocket.Conn // การเชื่อมต่อ WS ของ client
 	RoomID uint
 	UserID uint
 }
 
+// BroadcastMessage = ข้อความที่จะส่งกระจายให้ทุกคนในห้อง
 type BroadcastMessage struct {
 	RoomID  uint
 	Message *entity.Message
 }
 
+// สร้าง ChatHub ใหม่
 func NewChatHub(service *services.ChatService) *ChatHub {
 	return &ChatHub{
 		clients:    make(map[uint]map[*websocket.Conn]bool),
@@ -43,9 +47,11 @@ func NewChatHub(service *services.ChatService) *ChatHub {
 	}
 }
 
+// คอยฟัง register/unregister/broadcast ตลอดเวลา
 func (h *ChatHub) Run() {
 	for {
 		select {
+			// มี client ใหม่เข้าห้อง
 		case sub := <-h.register:
 			h.mu.Lock()
 			if h.clients[sub.RoomID] == nil {
@@ -54,6 +60,7 @@ func (h *ChatHub) Run() {
 			h.clients[sub.RoomID][sub.Conn] = true
 			h.mu.Unlock()
 
+			// มี client ออกจากห้อง
 		case sub := <-h.unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[sub.RoomID][sub.Conn]; ok {
@@ -62,6 +69,7 @@ func (h *ChatHub) Run() {
 			}
 			h.mu.Unlock()
 
+			// มีข้อความใหม่เข้ามา → กระจายให้ทุกคนในห้อง
 		case msg := <-h.broadcast:
 			h.mu.Lock()
 			for conn := range h.clients[msg.RoomID] {
@@ -86,35 +94,39 @@ func (h *ChatHub) HandleWebSocket(c *gin.Context) {
     var roomID uint
     fmt.Sscan(roomIDStr, &roomID)
 
+		// --- ดึง userId จาก JWT ที่ middleware ใส่ไว้
     userIDVal, _ := c.Get("userId")
     userID := userIDVal.(uint)
 
-    // ✅ ใช้ Service แทน Repo
+    // --- ตรวจสอบว่าห้องนี้มีจริงไหม
     room, err := h.service.GetRoomByID(roomID)
     if err != nil {
         c.JSON(http.StatusNotFound, gin.H{"error": "room not found"})
         return
     }
 
+		// --- ตรวจสอบสิทธิ์ (เจ้าของ order หรือ rider เท่านั้น)
     ok, err := h.service.CanAccessRoom(userID, room.OrderID)
     if err != nil || !ok {
         c.JSON(http.StatusForbidden, gin.H{"error": "no access"})
         return
     }
 
+		// --- Upgrade HTTP → WebSocket
     conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
     if err != nil {
         log.Printf("ws upgrade error: %v", err)
         return
     }
 
+		// --- สมัคร client เข้า room
     sub := Subscription{Conn: conn, RoomID: room.ID, UserID: userID}
     h.register <- sub
 
     go h.listenMessages(sub)
 }
 
-
+// listenMessages = ฟังข้อความใหม่จาก client ทาง WS
 func (h *ChatHub) listenMessages(sub Subscription) {
 	defer func() { h.unregister <- sub }()
 

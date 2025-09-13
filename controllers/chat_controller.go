@@ -27,7 +27,7 @@ func (ctl *ChatController) GetOrCreateRoom(c *gin.Context) {
 	uidAny, _ := c.Get("userId")
 	userID := uidAny.(uint)
 
-	// ✅ ตรวจสิทธิ์ก่อน
+	// ตรวจสิทธิ์ก่อน
 	ok, err := ctl.Service.CanAccessRoom(userID, uint(orderID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -57,7 +57,7 @@ func (ctl *ChatController) GetMessages(c *gin.Context) {
 	uidAny, _ := c.Get("userId")
 	userID := uidAny.(uint)
 
-	// ✅ ตรวจสิทธิ์ก่อน
+	// ตรวจสิทธิ์ก่อน
 	ok, err := ctl.Service.CanAccessRoom(userID, uint(orderID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -102,7 +102,7 @@ func (ctl *ChatController) SendMessage(c *gin.Context) {
 	uidAny, _ := c.Get("userId")
 	userID := uidAny.(uint)
 
-	// ✅ ตรวจสิทธิ์ก่อน
+	// ตรวจสิทธิ์ก่อน
 	ok, err := ctl.Service.CanAccessRoom(userID, uint(orderID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
