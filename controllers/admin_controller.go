@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"backend/entity"
+	"backend/pkg/resp"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -96,15 +97,10 @@ func (ac *AdminController) Restaurants(c *gin.Context) {
 		Select("id, name, restaurant_status_id, user_id, created_at").
 		Order("id DESC").Limit(limit).Offset(offset).
 		Find(&items).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		resp.ServerError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"page":  page,
-		"limit": limit,
-		"total": total,
-	})
+	resp.OK(c, gin.H{"items": items, "page": page, "limit": limit, "total": total})
 }
 
 // รายงานปัญหา
@@ -122,10 +118,10 @@ func (ac *AdminController) Reports(c *gin.Context) {
 		Select("id, name, issue_type_id, user_id, date_at, created_at").
 		Order("id DESC").Limit(100).
 		Find(&items).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		resp.ServerError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	resp.OK(c, gin.H{"items": items})
 }
 
 // ไรเดอร์
@@ -141,12 +137,11 @@ func (ac *AdminController) Riders(c *gin.Context) {
 		Select("id, user_id, vehicle_plate, rider_status_id").
 		Order("id DESC").Limit(100).
 		Find(&items).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		resp.ServerError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	resp.OK(c, gin.H{"items": items})
 }
-
 
 // โปรโมชัน
 func getUintFromCtx(c *gin.Context, keys ...string) (uint, bool) {
